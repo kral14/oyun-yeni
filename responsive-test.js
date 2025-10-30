@@ -43,6 +43,21 @@
     document.getElementById('grid').textContent = `Grid: ${state.cols}×${state.rows}`;
     document.getElementById('cell').textContent = `Cell(px): ${state.gridSize}`;
     document.getElementById('meta').textContent = `DPR ${dpr}`;
+
+    // Orientation-aware shop sizing: bottom in portrait, right with matched height in landscape
+    const shop = document.getElementById('shop');
+    if (shop) {
+      const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+      if (isPortrait) {
+        shop.style.height = 'auto';
+        shop.style.maxHeight = '';
+        shop.style.overflow = '';
+      } else {
+        shop.style.height = canvas.style.height;
+        shop.style.maxHeight = canvas.style.height;
+        shop.style.overflow = 'auto';
+      }
+    }
   }
 
   function drawGrid(){

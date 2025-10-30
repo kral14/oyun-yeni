@@ -11,13 +11,35 @@
         .wrap{max-width:1280px;margin:0 auto;padding:10px}
         .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
         .meta{opacity:.8;font-size:12px}
-        .area{display:grid;grid-template-columns:1fr 280px;gap:10px}
-        @media (max-width:900px){.area{grid-template-columns:1fr}}
+        .area{display:grid;grid-template-columns:1fr 280px;gap:10px;align-items:start}
+        /* Portrait: shop below canvas, full width */
+        @media (orientation: portrait){
+            .area{grid-template-columns:1fr}
+            .shop{order:2;width:100%}
+        }
+        /* Landscape: shop at right, fixed width */
+        @media (orientation: landscape){
+            .area{grid-template-columns:1fr 300px}
+            .shop{order:0}
+        }
         canvas{display:block;width:100%;height:auto;background:#000;border:2px solid rgba(74,144,226,.6);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06)}
         .side{background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px}
         .side h3{margin:0 0 8px;color:#cfe6ff;font-size:16px}
         .row{display:flex;gap:10px;flex-wrap:wrap}
         .pill{padding:6px 10px;border-radius:999px;background:#0f1a2a;border:1px solid rgba(255,255,255,.1);font-size:12px}
+        /* Tower Shop (test panel) */
+        .shop{background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px}
+        .shop h3{margin:0 0 10px;font-size:16px;color:#cfe6ff}
+        .shop .options{display:flex;flex-direction:column;gap:8px}
+        .shop .opt{display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px}
+        .shop .icon{width:32px;height:32px;border-radius:50%;border:2px solid #fff}
+        .shop .icon.basic{background:linear-gradient(45deg,#8B4513,#A0522D)}
+        .shop .icon.rapid{background:linear-gradient(45deg,#4169E1,#6495ED)}
+        .shop .icon.heavy{background:linear-gradient(45deg,#DC143C,#FF6347)}
+        /* Small height landscape: make shop scrollable */
+        @media (orientation: landscape) and (max-height:520px){
+            .shop{overflow:auto}
+        }
     </style>
     <script defer src="responsive-test.js"></script>
     </head>
@@ -29,6 +51,14 @@
         </div>
         <div class="area">
             <canvas id="board" width="960" height="540"></canvas>
+            <div class="shop" id="shop">
+                <h3>Tower Shop</h3>
+                <div class="options">
+                    <div class="opt"><div class="icon basic"></div><div>Basic Tower — 50$</div></div>
+                    <div class="opt"><div class="icon rapid"></div><div>Rapid Tower — 100$</div></div>
+                    <div class="opt"><div class="icon heavy"></div><div>Heavy Tower — 200$</div></div>
+                </div>
+            </div>
             <div class="side">
                 <h3>Info</h3>
                 <div class="row">
