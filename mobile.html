@@ -6,30 +6,58 @@
     <title>Tower Defense — Mobile</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        /* Force mobile-first layout regardless of width */
-        .game-container { display: grid; grid-template-columns: 180px 1fr; grid-template-rows: 1fr; grid-template-areas: 'nav main'; height: 100vh; width: 100vw; overflow: hidden; }
-        .game-header { grid-area: nav; display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:10px; height:100vh; overflow-y:auto; border-right:2px solid #4a90e2; border-bottom:none; }
-        .game-header h1 { font-size: 1.2em; text-align: center; }
-        .game-stats { display:grid; grid-template-columns:1fr; gap:8px; }
-        .game-area { grid-area: main; padding:8px; overflow:hidden; }
-        /* In main area: stack canvas then shop */
-        .game-area { display:grid; grid-template-columns: 1fr; gap:8px; }
-        .tower-shop { order: 2; width: 100%; padding: 8px; gap: 8px; }
-        .tower-options { gap: 6px; }
-        .tower-option { padding: 8px; border-radius: 8px; gap: 8px; }
-        .tower-icon { width: 30px; height: 30px; }
-        .tower-name { font-size: 13px; }
-        .tower-cost { font-size: 12px; }
+        /* Force mobile-first layout: full-width main, header hidden */
+        .game-container { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; height: 100vh; width: 100vw; overflow: hidden; }
+        .game-header { display:none; }
+        .game-area { padding:8px; overflow:hidden; display:grid; grid-template-columns: 1fr; gap:8px; max-width: 100vw; margin: 0; }
+        /* Override desktop constraint */
+        .game-area { max-width: none; }
+        .tower-shop { order: 2; width: 100%; padding: 6px; gap: 6px; }
+        .tower-shop h3 { margin: 0 0 6px; font-size: 14px; }
+        .tower-options { gap: 4px; }
+        .tower-option { padding: 6px; border-radius: 8px; gap: 4px; }
+        .tower-icon { width: 22px; height: 22px; }
+        .tower-name { font-size: 11px; }
+        .tower-cost { font-size: 10px; opacity: .9; }
         /* Portrait tweaks */
         @media (orientation: portrait) {
-            .tower-options { flex-direction: row; gap: 8px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
-            .tower-option { flex: 0 0 auto; min-width: 140px; padding: 8px; }
-            .tower-icon { width: 28px; height: 28px; }
-            .tower-name { font-size: 12px; }
-            .tower-cost { font-size: 11px; }
+            /* Extra compact: use grid instead of scroll for tight fit */
+            .tower-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; overflow: visible; }
+            @media (max-width: 420px) { .tower-options { grid-template-columns: repeat(2, 1fr); } }
+            .tower-option { min-width: 0; padding: 6px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+            .tower-icon { width: 22px; height: 22px; }
+            .tower-name { font-size: 11px; }
+            .tower-cost { font-size: 10px; }
         }
         /* Landscape tweaks: allow shop scroll if height is low */
         @media (orientation: landscape) and (max-height: 520px) { .tower-shop { max-height: 100%; overflow:auto; } }
+
+        /* More compact controls inside shop panel */
+        .game-controls { gap: 6px; }
+        .game-controls button { padding: 6px; font-size: 0.85em; }
+        .auto-start-container { padding: 4px; }
+        .auto-start-container label { font-size: 12px; }
+        .speed-controls label { font-size: 11px; }
+        .speed-controls button { padding: 3px 6px; font-size: 10px; }
+        .auto-start-container { padding: 6px; }
+
+        /* Bottom HUD for key stats */
+        .hud-bottom {
+            position: fixed; left: 8px; right: 72px; bottom: 12px; z-index: 16;
+            display: flex; gap: 8px; align-items: center; overflow-x: auto;
+            background: rgba(0,0,0,0.85); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px; padding: 6px 8px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .hud-bottom .chip {
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 8px; border-radius: 8px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            white-space: nowrap; font-size: 12px;
+        }
+        .hud-bottom .label { opacity: .85; }
+        .hud-bottom .value { color: #4a90e2; font-weight: bold; }
 
         /* Slide-out panel behavior on mobile: panel hidden by default to show full game area */
         .shop-toggle {
@@ -65,17 +93,7 @@
 </head>
 <body>
     <div class="game-container">
-        <div class="game-header">
-            <h1>Tower Defense</h1>
-            <div class="game-stats">
-                <div class="stat"><span class="stat-label">Health:</span><span id="health">100</span></div>
-                <div class="stat"><span class="stat-label">Money:</span><span id="money">500</span></div>
-                <div class="stat"><span class="stat-label">Wave:</span><span id="wave">1</span></div>
-                <div class="stat"><span class="stat-label">Score:</span><span id="score">0</span></div>
-                <div class="stat"><span class="stat-label">Level:</span><span id="level">1</span></div>
-                <div class="stat"><span class="stat-label">💎:</span><span id="diamonds">0</span></div>
-            </div>
-        </div>
+        <div class="game-header"></div>
 
         <div class="game-area">
             <canvas id="gameCanvas" width="960" height="540"></canvas>
@@ -142,6 +160,16 @@
             <button id="ctxUpgrade">Upgrade</button>
             <button id="ctxSell">Sell</button>
         </div>
+        <!-- Bottom HUD stats -->
+        <div class="hud-bottom" id="hudBottom">
+            <div class="chip"><span class="label">❤</span><span class="value" id="health">100</span></div>
+            <div class="chip"><span class="label">$</span><span class="value" id="money">500</span></div>
+            <div class="chip"><span class="label">Wave</span><span class="value" id="wave">1</span></div>
+            <div class="chip"><span class="label">Score</span><span class="value" id="score">0</span></div>
+            <div class="chip"><span class="label">Lvl</span><span class="value" id="level">1</span></div>
+            <div class="chip"><span class="label">💎</span><span class="value" id="diamonds">0</span></div>
+        </div>
+
         <!-- Floating toggle button -->
         <button class="shop-toggle" id="toggleShop" aria-label="Open shop">☰</button>
     </div>
@@ -160,6 +188,32 @@
             backdrop.addEventListener('click', closeShop);
             // Close on Escape
             document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeShop(); });
+        })();
+        // Auto-switch back to desktop when no longer mobile
+        (function(){
+            function isMobileEnv(){
+                try {
+                    var mq = window.matchMedia ? window.matchMedia('(max-width: 900px)') : { matches:false };
+                    var small = mq.matches;
+                    var touch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+                    return small || touch;
+                } catch(e) { return true; }
+            }
+            function maybeRedirect(){
+                if (!isMobileEnv()) {
+                    window.location.replace('index.html');
+                }
+            }
+            var debounce;
+            function onResize(){
+                clearTimeout(debounce);
+                debounce = setTimeout(maybeRedirect, 120);
+            }
+            // initial check
+            maybeRedirect();
+            // react to changes
+            window.addEventListener('resize', onResize);
+            window.addEventListener('orientationchange', onResize);
         })();
     </script>
 </body>

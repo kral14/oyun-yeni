@@ -98,8 +98,10 @@ class TowerDefenseGame {
         const cw = this.canvas.width;   // device pixels
         const ch = this.canvas.height;  // device pixels
 
-        // Leave padding around the board so elements near edges stay visible
-        const pad = Math.max(8, Math.round(Math.min(cw, ch) * 0.04));
+        // Leave padding around the board; use smaller pad on portrait to maximize fit
+        const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+        const padRatio = portrait ? 0.02 : 0.04;
+        const pad = Math.max(6, Math.round(Math.min(cw, ch) * padRatio));
         const cellW = Math.floor((cw - pad * 2) / this.cols);
         const cellH = Math.floor((ch - pad * 2) / this.rows);
         this.gridSize = Math.max(10, Math.min(cellW, cellH));
@@ -311,7 +313,10 @@ class TowerDefenseGame {
             // When header becomes a left sidebar (mobile portrait), don't subtract its height
             const sidebarLeft = window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
             const headerH = (!sidebarLeft && header) ? header.getBoundingClientRect().height : 0;
-            const availableH = Math.max(240, window.innerHeight - headerH - 32);
+            // Smaller buffer in portrait to reduce wasted margins; leave a bit for HUD and padding
+            const portrait = window.matchMedia('(orientation: portrait)').matches;
+            const buffer = portrait ? 16 : 32;
+            const availableH = Math.max(240, window.innerHeight - headerH - buffer);
             // Keep 16:9
             let cssW = Math.min(parentW, Math.round(availableH * 16 / 9));
             let cssH = Math.round(cssW * 9 / 16);

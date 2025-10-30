@@ -7,17 +7,30 @@
     <link rel="stylesheet" href="style.css">
     <script>
         (function(){
-            try {
-                var isSmall = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
-                var isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-                var onMobile = isSmall || isTouch;
+            function isMobileEnv(){
+                try {
+                    var mq = window.matchMedia ? window.matchMedia('(max-width: 900px)') : { matches:false };
+                    var small = mq.matches;
+                    var touch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+                    return small || touch;
+                } catch(e) { return false; }
+            }
+            function maybeRedirect(){
                 var alreadyMobile = /mobile\.html$/i.test(window.location.pathname);
-                if (onMobile && !alreadyMobile) {
+                if (isMobileEnv() && !alreadyMobile) {
                     window.location.replace('mobile.html');
                 }
-            } catch(e) {
-                // ignore
             }
+            var debounce;
+            function onResize(){
+                clearTimeout(debounce);
+                debounce = setTimeout(maybeRedirect, 120);
+            }
+            // initial check
+            maybeRedirect();
+            // react to changes
+            window.addEventListener('resize', onResize);
+            window.addEventListener('orientationchange', onResize);
         })();
     </script>
 </head>
