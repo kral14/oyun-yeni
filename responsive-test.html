@@ -66,8 +66,24 @@
                     <div class="pill" id="grid"></div>
                     <div class="pill" id="cell"></div>
                 </div>
-                <p style="opacity:.85;font-size:13px;margin-top:10px">Resize the window to test auto-fit on desktop/mobile.
-                Canvas keeps 16:9, board centers with equal padding. Towers show range only on select.</p>
+            <div style="margin-top:10px;display:grid;gap:8px">
+                <div style="display:flex;gap:8px;align-items:center">
+                    <label style="width:60px">Rows</label>
+                    <input id="rowsInput" type="number" min="3" max="60" value="11" style="width:80px" />
+                    <label style="width:60px">Cols</label>
+                    <input id="colsInput" type="number" min="3" max="80" value="15" style="width:80px" />
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <label style="width:60px">Zoom</label>
+                    <input id="zoomInput" type="range" min="50" max="200" value="100" />
+                    <span id="zoomLabel" class="pill">100%</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button id="fitCenter">Fit & Center</button>
+                    <button id="resetView">Reset View</button>
+                </div>
+                <p style="opacity:.85;font-size:13px;margin:6px 0 0">Drag inside canvas to pan. Wheel to zoom.</p>
+            </div>
             </div>
         </div>
     </div>

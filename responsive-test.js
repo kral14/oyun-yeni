@@ -8,6 +8,10 @@
     gridSize: 32,
     offsetX: 0,
     offsetY: 0,
+    baseGridSize: 32,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
     towers: [], // store logical positions: { col,row,type,range,color,angle }
     enemies: [], // store { col,row,type }
     selectedTower: null,
@@ -33,11 +37,14 @@
     const pad = Math.max(8, Math.round(Math.min(cw, ch) * 0.04));
     const cellW = Math.floor((cw - pad*2) / state.cols);
     const cellH = Math.floor((ch - pad*2) / state.rows);
-    state.gridSize = Math.max(10, Math.min(cellW, cellH));
+    state.baseGridSize = Math.max(10, Math.min(cellW, cellH));
+    state.gridSize = Math.max(6, Math.round(state.baseGridSize * state.zoom));
     const boardW = state.gridSize * state.cols;
     const boardH = state.gridSize * state.rows;
-    state.offsetX = Math.round((cw - boardW) / 2);
-    state.offsetY = Math.round((ch - boardH) / 2);
+    const centerX = Math.round((cw - boardW) / 2);
+    const centerY = Math.round((ch - boardH) / 2);
+    state.offsetX = centerX + Math.round(state.panX);
+    state.offsetY = centerY + Math.round(state.panY);
 
     document.getElementById('size').textContent = `Canvas: ${cssW}×${cssH}`;
     document.getElementById('grid').textContent = `Grid: ${state.cols}×${state.rows}`;
@@ -172,6 +179,49 @@
 
   window.addEventListener('resize', ()=>{ resize(); render(); });
   window.addEventListener('load', ()=>{ resize(); initContent(); render(); });
+  
+  // Controls: rows/cols
+  document.getElementById('rowsInput')?.addEventListener('input', (e)=>{
+    const v = Math.max(3, Math.min(60, parseInt(e.target.value||'0',10)));
+    state.rows = v; resize(); render();
+  });
+  document.getElementById('colsInput')?.addEventListener('input', (e)=>{
+    const v = Math.max(3, Math.min(80, parseInt(e.target.value||'0',10)));
+    state.cols = v; resize(); render();
+  });
+  // Zoom slider
+  const zoomInput = document.getElementById('zoomInput');
+  const zoomLabel = document.getElementById('zoomLabel');
+  function setZoomFromSlider(){
+    if(!zoomInput) return; const z = (parseInt(zoomInput.value,10)||100)/100; state.zoom = Math.max(0.5, Math.min(2, z));
+    if(zoomLabel) zoomLabel.textContent = Math.round(state.zoom*100)+"%";
+    resize(); render();
+  }
+  zoomInput?.addEventListener('input', setZoomFromSlider);
+
+  // Fit & Center
+  document.getElementById('fitCenter')?.addEventListener('click', ()=>{
+    state.zoom = 1; state.panX = 0; state.panY = 0; if(zoomInput){ zoomInput.value = '100'; if(zoomLabel) zoomLabel.textContent='100%'; }
+    resize(); render();
+  });
+  document.getElementById('resetView')?.addEventListener('click', ()=>{
+    state.zoom = 1; state.panX = 0; state.panY = 0; if(zoomInput){ zoomInput.value = '100'; if(zoomLabel) zoomLabel.textContent='100%'; }
+    resize(); render();
+  });
+
+  // Drag to pan
+  let dragging = false, lastX=0, lastY=0;
+  canvas.addEventListener('pointerdown', (e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', (e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; state.panX += dx * (window.devicePixelRatio? window.devicePixelRatio:1); state.panY += dy * (window.devicePixelRatio? window.devicePixelRatio:1); resize(); render(); });
+  canvas.addEventListener('pointerup', (e)=>{ dragging=false; });
+  canvas.addEventListener('pointercancel', ()=>{ dragging=false; });
+
+  // Wheel to zoom (Ctrl not required in test page)
+  canvas.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    const delta = e.deltaY>0 ? -0.05 : 0.05; state.zoom = Math.max(0.5, Math.min(2, state.zoom + delta));
+    if(zoomInput){ zoomInput.value = String(Math.round(state.zoom*100)); setZoomFromSlider(); } else { resize(); render(); }
+  }, { passive:false });
 })();
 
 
