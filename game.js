@@ -862,6 +862,12 @@ class TowerDefenseGame {
     recomputePath() {
         console.log(`\n=== YOL YENİDEN HESAPLANIYOR ===`);
         this.debugPath(`Yol yeniden hesaplanıyor...`);
+        // Ensure start/goal initialized
+        if (!this.startCell || !this.goalCell) {
+            const midRow = Math.floor((this.rows || this.gridRows || 1) / 2);
+            this.startCell = this.startCell || { col: 0, row: midRow };
+            this.goalCell = this.goalCell || { col: (this.cols || this.gridCols || 1) - 1, row: midRow };
+        }
         const blocked = this.getBlockedCells();
         this.debugPath(`Tüm engellenmiş hücreler: ${Array.from(blocked).join(', ')}`);
         

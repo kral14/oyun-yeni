@@ -1,17 +1,27 @@
 // Minimal service worker to enable installability and basic offline shell
-const CACHE = 'td-cache-v1';
+const SW_VERSION = '2.1';
+const CACHE = 'td-cache-v2.1';
+console.log('[SW] version', SW_VERSION);
+// Use relative URLs to work under subpaths (e.g., GitHub Pages)
 const CORE_ASSETS = [
-  '/',
-  '/index.html',
-  '/mobile.html',
-  '/style.css',
-  '/game.js'
+  'index.html',
+  'mobile.html',
+  'style.css',
+  'game.js',
+  'favicon.svg'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    await cache.addAll(CORE_ASSETS.map((p) => new Request(p, { cache: 'reload' })));
+    // Add core assets one by one; skip missing to avoid install failure
+    for (const p of CORE_ASSETS) {
+      try {
+        await cache.add(new Request(p, { cache: 'reload' }));
+      } catch (e) {
+        // ignore missing resources
+      }
+    }
     await self.skipWaiting();
   })());
 });
