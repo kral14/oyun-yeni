@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Tower Defense Game</title>
     <link rel="stylesheet" href="style.css">
+    <script>
+        (function(){
+            try {
+                var isSmall = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+                var isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                var onMobile = isSmall || isTouch;
+                var alreadyMobile = /mobile\.html$/i.test(window.location.pathname);
+                if (onMobile && !alreadyMobile) {
+                    window.location.replace('mobile.html');
+                }
+            } catch(e) {
+                // ignore
+            }
+        })();
+    </script>
 </head>
 <body>
     <div class="game-container">

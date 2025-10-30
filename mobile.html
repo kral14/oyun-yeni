@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tower Defense — Mobile</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Force mobile-first layout regardless of width */
+        .game-container { display: grid; grid-template-columns: 180px 1fr; grid-template-rows: 1fr; grid-template-areas: 'nav main'; height: 100vh; width: 100vw; overflow: hidden; }
+        .game-header { grid-area: nav; display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:10px; height:100vh; overflow-y:auto; border-right:2px solid #4a90e2; border-bottom:none; }
+        .game-header h1 { font-size: 1.2em; text-align: center; }
+        .game-stats { display:grid; grid-template-columns:1fr; gap:8px; }
+        .game-area { grid-area: main; padding:8px; overflow:hidden; }
+        /* In main area: stack canvas then shop */
+        .game-area { display:grid; grid-template-columns: 1fr; gap:8px; }
+        .tower-shop { order: 2; width: 100%; padding: 8px; gap: 8px; }
+        .tower-options { gap: 6px; }
+        .tower-option { padding: 8px; border-radius: 8px; gap: 8px; }
+        .tower-icon { width: 30px; height: 30px; }
+        .tower-name { font-size: 13px; }
+        .tower-cost { font-size: 12px; }
+        /* Portrait tweaks */
+        @media (orientation: portrait) {
+            .tower-options { flex-direction: row; gap: 8px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+            .tower-option { flex: 0 0 auto; min-width: 140px; padding: 8px; }
+            .tower-icon { width: 28px; height: 28px; }
+            .tower-name { font-size: 12px; }
+            .tower-cost { font-size: 11px; }
+        }
+        /* Landscape tweaks: allow shop scroll if height is low */
+        @media (orientation: landscape) and (max-height: 520px) { .tower-shop { max-height: 100%; overflow:auto; } }
+
+        /* Slide-out panel behavior on mobile: panel hidden by default to show full game area */
+        .shop-toggle {
+            position: fixed; right: 12px; bottom: 12px; z-index: 20;
+            width: 48px; height: 48px; border-radius: 50%;
+            background: linear-gradient(45deg, #4a90e2, #357abd);
+            color: #fff; border: none; font-weight: bold; cursor: pointer;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+        }
+        #shopBackdrop {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+            z-index: 14; opacity: 0; pointer-events: none; transition: opacity .2s ease;
+        }
+        #shopBackdrop.show { opacity: 1; pointer-events: auto; }
+        /* Base fixed panel */
+        .tower-shop.shop-panel {
+            position: fixed; z-index: 15; background: rgba(0,0,0,0.92);
+            border: 2px solid #4a90e2; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            overflow: auto; padding: 10px;
+            transition: transform .25s ease;
+        }
+        /* Landscape: slide from right */
+        @media (orientation: landscape) {
+            .tower-shop.shop-panel { top: 8px; bottom: 8px; right: 8px; width: min(360px, 86vw); transform: translateX(110%); }
+            .tower-shop.shop-panel.open { transform: translateX(0); }
+        }
+        /* Portrait: bottom sheet */
+        @media (orientation: portrait) {
+            .tower-shop.shop-panel { left: 8px; right: 8px; bottom: 8px; height: 56vh; transform: translateY(110%); }
+            .tower-shop.shop-panel.open { transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-header">
+            <h1>Tower Defense</h1>
+            <div class="game-stats">
+                <div class="stat"><span class="stat-label">Health:</span><span id="health">100</span></div>
+                <div class="stat"><span class="stat-label">Money:</span><span id="money">500</span></div>
+                <div class="stat"><span class="stat-label">Wave:</span><span id="wave">1</span></div>
+                <div class="stat"><span class="stat-label">Score:</span><span id="score">0</span></div>
+                <div class="stat"><span class="stat-label">Level:</span><span id="level">1</span></div>
+                <div class="stat"><span class="stat-label">💎:</span><span id="diamonds">0</span></div>
+            </div>
+        </div>
+
+        <div class="game-area">
+            <canvas id="gameCanvas" width="960" height="540"></canvas>
+
+            <!-- Backdrop for panel -->
+            <div id="shopBackdrop"></div>
+
+            <!-- Slide-out Tower Shop panel -->
+            <div class="tower-shop shop-panel" id="mobileShop">
+                <h3>Tower Shop</h3>
+                <div class="tower-options">
+                    <div class="tower-option" data-tower="basic">
+                        <div class="tower-icon basic-tower"></div>
+                        <div class="tower-info">
+                            <div class="tower-name">Basic Tower</div>
+                            <div class="tower-cost">$50</div>
+                        </div>
+                    </div>
+                    <div class="tower-option" data-tower="rapid">
+                        <div class="tower-icon rapid-tower"></div>
+                        <div class="tower-info">
+                            <div class="tower-name">Rapid Tower</div>
+                            <div class="tower-cost">$100</div>
+                        </div>
+                    </div>
+                    <div class="tower-option" data-tower="heavy">
+                        <div class="tower-icon heavy-tower"></div>
+                        <div class="tower-info">
+                            <div class="tower-name">Heavy Tower</div>
+                            <div class="tower-cost">$200</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="game-controls">
+                    <button id="startWave">Start Wave</button>
+                    <div class="auto-start-container">
+                        <input type="checkbox" id="autoStart" />
+                        <label for="autoStart">Auto Start</label>
+                    </div>
+                    <button id="pauseGame">Pause</button>
+                    <button id="restartGame">Restart</button>
+                    <button id="expandGrid">Expand Grid (💎<span id="expandDiamonds">5</span>)</button>
+                    <div class="speed-controls">
+                        <label>Speed:</label>
+                        <button id="speed1">1x</button>
+                        <button id="speed2">2x</button>
+                        <button id="speed3">3x</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="game-info">
+            <div class="selected-tower-info" id="selectedTowerInfo" style="display: none;">
+                <h4>Selected Tower</h4>
+                <div id="towerDetails"></div>
+                <button id="upgradeTower">Upgrade ($<span id="upgradeCost">0</span>)</button>
+                <button id="sellTower">Sell ($<span id="sellValue">0</span>)</button>
+            </div>
+        </div>
+
+        <div id="towerContext" style="display:none;">
+            <button id="ctxUpgrade">Upgrade</button>
+            <button id="ctxSell">Sell</button>
+        </div>
+        <!-- Floating toggle button -->
+        <button class="shop-toggle" id="toggleShop" aria-label="Open shop">☰</button>
+    </div>
+
+    <script src="game.js"></script>
+    <script>
+        (function(){
+            const shop = document.getElementById('mobileShop');
+            const btn = document.getElementById('toggleShop');
+            const backdrop = document.getElementById('shopBackdrop');
+            function openShop(){ shop.classList.add('open'); backdrop.classList.add('show'); }
+            function closeShop(){ shop.classList.remove('open'); backdrop.classList.remove('show'); }
+            btn.addEventListener('click', function(){
+                if (shop.classList.contains('open')) closeShop(); else openShop();
+            });
+            backdrop.addEventListener('click', closeShop);
+            // Close on Escape
+            document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeShop(); });
+        })();
+    </script>
+</body>
+</html>
+
+
