@@ -53,9 +53,11 @@ class TowerDefenseGame {
         this.autoStart = false;
         
         // Grid configuration with FIXED cell counts (responsive pixel size)
-        // Requested: board 11 x 15 and path centered (row 6)
-        this.rows = 11;
-        this.cols = 15;
+        // Orientation-specific defaults: landscape 9x20, portrait 11x10
+        this.rows = 9; // placeholder, will be set by setGridForOrientation()
+        this.cols = 20;
+        this.lastOrientationPortrait = null;
+        this.setGridForOrientation();
         this.baseGridSize = 25;
         this.gridSize = this.baseGridSize;
         this.scale = 1;
@@ -302,6 +304,18 @@ class TowerDefenseGame {
         this.recomputePath();
         this.gameLoop();
     }
+
+    setGridForOrientation() {
+        const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+        this.lastOrientationPortrait = portrait;
+        if (portrait) {
+            this.rows = 11; // expand vertically feel
+            this.cols = 10;
+        } else {
+            this.rows = 9;
+            this.cols = 20;
+        }
+    }
     
     setupResponsiveHandling() {
         const resizeCanvas = () => {
@@ -360,6 +374,18 @@ class TowerDefenseGame {
         };
 
         const doResize = () => {
+            const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+            if (this.lastOrientationPortrait === null) this.lastOrientationPortrait = isPortrait;
+            const orientationChanged = this.lastOrientationPortrait !== isPortrait;
+
+            // If orientation changed and it's safe, switch grid dimensions
+            if (orientationChanged) {
+                const safeToSwap = (!this.towers || this.towers.length === 0) && (!this.enemies || this.enemies.length === 0) && (!this.gameState || this.gameState.wave <= 1);
+                if (safeToSwap) {
+                    this.setGridForOrientation();
+                }
+            }
+
             resizeCanvas();
             this.updateTowerPositions();
             this.recomputePath();
@@ -2299,9 +2325,8 @@ class TowerDefenseGame {
         this.currentLevel = 1;
         this.levelMultiplier = 1.0;
         
-        // Reset grid to initial size
-        this.cols = 32;
-        this.rows = 18;
+        // Reset grid to initial size according to current orientation
+        this.setGridForOrientation();
         this.expansionCost = 100;
         this.expansionDiamonds = 5;
         // Keep diamonds persistent - don't reset

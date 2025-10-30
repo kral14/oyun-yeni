@@ -99,6 +99,9 @@
             color: #fff; border: none; font-weight: bold; cursor: pointer;
             box-shadow: 0 6px 16px rgba(0,0,0,0.35);
         }
+        /* Lock page when modal is open */
+        .modal-open, .modal-open body { overflow: hidden !important; }
+        .modal-open body { touch-action: none !important; }
         #shopBackdrop {
             position: fixed; inset: 0; background: rgba(0,0,0,0.45);
             z-index: 14; opacity: 0; pointer-events: none; transition: opacity .2s ease;
@@ -108,12 +111,15 @@
         .tower-shop.shop-panel {
             position: fixed; z-index: 15; background: rgba(0,0,0,0.92);
             border: 2px solid #4a90e2; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            overflow: auto; padding: 10px;
+            display: flex; flex-direction: column; gap: 8px; padding: 10px;
             transition: transform .25s ease;
+            /* Internal scrolling areas */
         }
+        .tower-shop.shop-panel .tower-options { flex: 0 0 auto; }
+        .tower-shop.shop-panel .game-controls { flex: 1 1 auto; overflow: auto; }
         /* Landscape: slide from right */
         @media (orientation: landscape) {
-            .tower-shop.shop-panel { top: 8px; bottom: 8px; right: 8px; width: min(360px, 86vw); transform: translateX(110%); }
+            .tower-shop.shop-panel { top: 8px; bottom: 8px; right: 8px; width: min(340px, 86vw); transform: translateX(110%); }
             .tower-shop.shop-panel.open { transform: translateX(0); }
         }
         /* Portrait: bottom sheet */
@@ -212,14 +218,19 @@
             const shop = document.getElementById('mobileShop');
             const btn = document.getElementById('toggleShop');
             const backdrop = document.getElementById('shopBackdrop');
-            function openShop(){ shop.classList.add('open'); backdrop.classList.add('show'); }
-            function closeShop(){ shop.classList.remove('open'); backdrop.classList.remove('show'); }
+            function openShop(){ shop.classList.add('open'); backdrop.classList.add('show'); document.documentElement.classList.add('modal-open'); }
+            function closeShop(){ shop.classList.remove('open'); backdrop.classList.remove('show'); document.documentElement.classList.remove('modal-open'); }
             btn.addEventListener('click', function(){
                 if (shop.classList.contains('open')) closeShop(); else openShop();
             });
             backdrop.addEventListener('click', closeShop);
             // Close on Escape
             document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeShop(); });
+            // Prevent scrolling/zooming gestures while panel is open
+            function blockIfOpen(e){ if(backdrop.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); } }
+            document.addEventListener('touchmove', blockIfOpen, { passive: false });
+            document.addEventListener('gesturestart', blockIfOpen, { passive: false });
+            document.addEventListener('wheel', function(e){ if(backdrop.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); } }, { passive: false });
         })();
         // Position HUD along the left edge of the canvas in landscape
         (function(){
