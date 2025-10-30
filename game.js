@@ -58,6 +58,18 @@ class TowerDefenseGame {
         this.cols = 20;
         this.lastOrientationPortrait = null;
         this.setGridForOrientation();
+        // If user-specified board size exists, prefer it and freeze orientation auto-sizing
+        try {
+            const savedRows = parseInt(localStorage.getItem('td_board_rows') || '');
+            const savedCols = parseInt(localStorage.getItem('td_board_cols') || '');
+            if (Number.isFinite(savedRows) && Number.isFinite(savedCols) && savedRows > 0 && savedCols > 0) {
+                this.rows = savedRows;
+                this.cols = savedCols;
+                this.orientationOverride = true;
+            } else {
+                this.orientationOverride = false;
+            }
+        } catch(e) { this.orientationOverride = false; }
         this.baseGridSize = 25;
         this.gridSize = this.baseGridSize;
         this.scale = 1;
@@ -101,6 +113,7 @@ class TowerDefenseGame {
         const ch = this.canvas.height;  // device pixels
 
         // Leave padding around the board; use smaller pad on portrait to maximize fit
+        if (this.orientationOverride) return; // keep user-defined size
         const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
         const padRatio = portrait ? 0.02 : 0.04;
         const pad = Math.max(6, Math.round(Math.min(cw, ch) * padRatio));
@@ -379,7 +392,7 @@ class TowerDefenseGame {
             const orientationChanged = this.lastOrientationPortrait !== isPortrait;
 
             // If orientation changed and it's safe, switch grid dimensions
-            if (orientationChanged) {
+            if (orientationChanged && !this.orientationOverride) {
                 const safeToSwap = (!this.towers || this.towers.length === 0) && (!this.enemies || this.enemies.length === 0) && (!this.gameState || this.gameState.wave <= 1);
                 if (safeToSwap) {
                     this.setGridForOrientation();

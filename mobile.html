@@ -445,12 +445,21 @@
                 if (window.game && Number.isFinite(rows) && Number.isFinite(cols)) {
                     window.game.rows = rows;
                     window.game.cols = cols;
+                    window.game.orientationOverride = true;
                     window.game.updateGridDimensions();
                     window.game.updateTowerPositions();
                     window.game.recomputePath();
                 }
+                try { localStorage.setItem('td_board_rows', String(rows)); localStorage.setItem('td_board_cols', String(cols)); } catch(e) {}
             }
             if (applyBtn) applyBtn.addEventListener('click', applyBoard);
+            // Prefill inputs from saved values
+            try {
+                const sr = localStorage.getItem('td_board_rows');
+                const sc = localStorage.getItem('td_board_cols');
+                if (sr && rowsInput) rowsInput.value = sr;
+                if (sc && colsInput) colsInput.value = sc;
+            } catch(e) {}
         })();
     </script>
 </body>
