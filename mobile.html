@@ -283,8 +283,15 @@
             const panToggle = document.getElementById('panToggle');
             let currentZoom = 1; let panX = 0; let panY = 0;
             function applyTransform(){
+                const panEnabled = !!(panToggle && panToggle.checked);
                 canvas.style.transformOrigin = 'center center';
-                canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+                if (panEnabled || (currentZoom !== 1)) {
+                    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+                } else {
+                    // Ensure no residual transform when pan disabled
+                    canvas.style.transform = '';
+                    panX = 0; panY = 0;
+                }
             }
             function setZoomFromSlider(){
                 if (!zoom) return;
@@ -295,14 +302,25 @@
             zoom?.addEventListener('input', setZoomFromSlider);
             document.getElementById('fitCenterBtn')?.addEventListener('click', ()=>{ currentZoom=1; panX=0; panY=0; if(zoom){ zoom.value='100'; if(zoomLabel) zoomLabel.textContent='100%'; } applyTransform(); });
             document.getElementById('resetViewBtn')?.addEventListener('click', ()=>{ currentZoom=1; panX=0; panY=0; if(zoom){ zoom.value='100'; if(zoomLabel) zoomLabel.textContent='100%'; } applyTransform(); });
-            panToggle?.addEventListener('change', ()=>{ if(panToggle.checked){ panLayer.classList.add('active'); } else { panLayer.classList.remove('active'); } });
+            panToggle?.addEventListener('change', ()=>{ if(panToggle.checked){ panLayer.classList.add('active'); } else { panLayer.classList.remove('active'); panX=0; panY=0; applyTransform(); } });
             // Drag to pan on overlay
             let dragging=false, lastX=0, lastY=0;
             panLayer.addEventListener('pointerdown', (e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; panLayer.setPointerCapture(e.pointerId); });
-            panLayer.addEventListener('pointermove', (e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; panX += dx; panY += dy; applyTransform(); });
+            panLayer.addEventListener('pointermove', (e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; panX += dx; panY += dy; // Clamp within container
+                const container = document.querySelector('.game-area');
+                if (container) {
+                    const cRect = container.getBoundingClientRect();
+                    const kRect = canvas.getBoundingClientRect();
+                    const maxX = Math.max(0, (kRect.width*currentZoom - cRect.width) / 2);
+                    const maxY = Math.max(0, (kRect.height*currentZoom - cRect.height) / 2);
+                    panX = Math.min(maxX, Math.max(-maxX, panX));
+                    panY = Math.min(maxY, Math.max(-maxY, panY));
+                }
+                applyTransform(); });
             panLayer.addEventListener('pointerup', ()=>{ dragging=false; });
             panLayer.addEventListener('pointercancel', ()=>{ dragging=false; });
             setZoomFromSlider();
+            window.addEventListener('resize', ()=>{ if(!panToggle || !panToggle.checked){ panX=0; panY=0; } applyTransform(); });
         })();
         // Position HUD along the left edge of the canvas in landscape
         (function(){
