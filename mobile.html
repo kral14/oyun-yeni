@@ -274,6 +274,36 @@
             document.addEventListener('gesturestart', blockIfOpen, { passive: false });
             document.addEventListener('wheel', function(e){ if(backdrop.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); } }, { passive: false });
         })();
+        // Board zoom/pan controls (overlay captures when pan mode is active)
+        (function(){
+            const canvas = document.getElementById('gameCanvas');
+            const panLayer = document.getElementById('panLayer');
+            const zoom = document.getElementById('boardZoom');
+            const zoomLabel = document.getElementById('boardZoomLabel');
+            const panToggle = document.getElementById('panToggle');
+            let currentZoom = 1; let panX = 0; let panY = 0;
+            function applyTransform(){
+                canvas.style.transformOrigin = 'center center';
+                canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+            }
+            function setZoomFromSlider(){
+                if (!zoom) return;
+                currentZoom = Math.max(0.5, Math.min(2, (parseInt(zoom.value,10)||100)/100));
+                if (zoomLabel) zoomLabel.textContent = Math.round(currentZoom*100) + '%';
+                applyTransform();
+            }
+            zoom?.addEventListener('input', setZoomFromSlider);
+            document.getElementById('fitCenterBtn')?.addEventListener('click', ()=>{ currentZoom=1; panX=0; panY=0; if(zoom){ zoom.value='100'; if(zoomLabel) zoomLabel.textContent='100%'; } applyTransform(); });
+            document.getElementById('resetViewBtn')?.addEventListener('click', ()=>{ currentZoom=1; panX=0; panY=0; if(zoom){ zoom.value='100'; if(zoomLabel) zoomLabel.textContent='100%'; } applyTransform(); });
+            panToggle?.addEventListener('change', ()=>{ if(panToggle.checked){ panLayer.classList.add('active'); } else { panLayer.classList.remove('active'); } });
+            // Drag to pan on overlay
+            let dragging=false, lastX=0, lastY=0;
+            panLayer.addEventListener('pointerdown', (e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; panLayer.setPointerCapture(e.pointerId); });
+            panLayer.addEventListener('pointermove', (e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; panX += dx; panY += dy; applyTransform(); });
+            panLayer.addEventListener('pointerup', ()=>{ dragging=false; });
+            panLayer.addEventListener('pointercancel', ()=>{ dragging=false; });
+            setZoomFromSlider();
+        })();
         // Position HUD along the left edge of the canvas in landscape
         (function(){
             const hud = document.getElementById('hudBottom');
