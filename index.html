@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Tower Defense Game</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#0a84ff">
     <script>
         (function(){
             function isMobileEnv(){
@@ -31,6 +33,16 @@
             // react to changes
             window.addEventListener('resize', onResize);
             window.addEventListener('orientationchange', onResize);
+        })();
+    </script>
+    <script>
+        // Register service worker for PWA installability
+        (function(){
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function(){
+                    navigator.serviceWorker.register('sw.js').catch(function(){});
+                });
+            }
         })();
     </script>
 </head>
