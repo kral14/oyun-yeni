@@ -131,12 +131,19 @@ class TowerDefenseGame {
         this.gridCols = this.cols;
         this.gridRows = this.rows;
         
-        // Only set start and goal cells if they haven't been set yet
-        if (!this.startCell || !this.goalCell) {
-            const midRow = Math.floor(this.gridRows / 2);
+        // Ensure start/goal cells exist and are within current bounds
+        const midRow = Math.floor(this.gridRows / 2);
+        if (!this.startCell || !Number.isFinite(this.startCell.row) || !Number.isFinite(this.startCell.col)) {
             this.startCell = { col: 0, row: midRow };
+        }
+        if (!this.goalCell || !Number.isFinite(this.goalCell.row) || !Number.isFinite(this.goalCell.col)) {
             this.goalCell = { col: this.gridCols - 1, row: midRow };
         }
+        // Clamp to board
+        this.startCell.col = Math.max(0, Math.min(this.gridCols - 1, this.startCell.col));
+        this.startCell.row = Math.max(0, Math.min(this.gridRows - 1, this.startCell.row));
+        this.goalCell.col = Math.max(0, Math.min(this.gridCols - 1, this.goalCell.col));
+        this.goalCell.row = Math.max(0, Math.min(this.gridRows - 1, this.goalCell.row));
 
         // Scale factor relative to base size
         this.scale = this.gridSize / this.baseGridSize;
@@ -752,7 +759,7 @@ class TowerDefenseGame {
         return blocked;
     }
 
-    // A* pathfinding
+        // A* pathfinding
     findPath(blocked) {
         const start = this.startCell;
         const goal = this.goalCell;
@@ -800,7 +807,9 @@ class TowerDefenseGame {
         };
 
         let iterations = 0;
-        const maxIterations = this.gridCols * this.gridRows * 2; // Prevent infinite loops
+        const colsForIter = Number.isFinite(this.gridCols) ? this.gridCols : (Number.isFinite(this.cols) ? this.cols : 0);
+        const rowsForIter = Number.isFinite(this.gridRows) ? this.gridRows : (Number.isFinite(this.rows) ? this.rows : 0);
+        const maxIterations = Math.max(1, colsForIter * rowsForIter * 2); // Prevent infinite loops
 
         while (open.size > 0 && iterations < maxIterations) {
             iterations++;
