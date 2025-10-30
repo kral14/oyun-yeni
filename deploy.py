@@ -16,7 +16,7 @@ def ensure_in_repo(repo_path: str) -> None:
     if code != 0:
         code, out = run(["git", "init"])
         if code != 0:
-            print("Git init alınmadı:\n" + out)
+            print("Git init failed:\n" + out)
             sys.exit(1)
 
 
@@ -33,7 +33,7 @@ def ensure_origin(remote_url: str) -> None:
 def has_changes() -> bool:
     code, out = run(["git", "status", "--porcelain"])
     if code != 0:
-        print("git status xətası:\n" + out)
+        print("git status error:\n" + out)
         sys.exit(1)
     return bool(out.strip())
 
@@ -42,24 +42,24 @@ def commit_and_push(default_branch: str) -> None:
     run(["git", "add", "-A"])  # hər şeyi stage et
 
     if not has_changes():
-        print("Dəyişiklik yoxdur. Heç nə push edilmədi.")
+        print("No changes. Nothing to push.")
         return
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     msg = f"auto: deploy {timestamp}"
     code, out = run(["git", "commit", "-m", msg])
     if code != 0:
-        print("commit xətası:\n" + out)
+        print("commit error:\n" + out)
         sys.exit(1)
 
     # Şaxəni main olaraq qur və push et
     run(["git", "branch", "-M", default_branch])
     code, out = run(["git", "push", "-u", "origin", default_branch])
     if code != 0:
-        print("push xətası:\n" + out)
-        print("\nQeyd: İlk dəfə push edəndə GitHub giriş pəncərəsi tələb oluna bilər.")
+        print("push error:\n" + out)
+        print("\nNote: On first push, GitHub may prompt for login once.")
         sys.exit(1)
-    print("Push tamamlandı.")
+    print("Push completed.")
 
 
 def main() -> None:
