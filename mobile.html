@@ -57,6 +57,7 @@
         .speed-controls button { padding: 3px 6px; font-size: 10px; }
         .auto-start-container { padding: 6px; }
 
+        :root { --hudW: 72px; }
         /* Bottom HUD for key stats */
         .hud-bottom {
             position: fixed; left: 8px; right: 72px; bottom: 12px; z-index: 16;
@@ -74,6 +75,21 @@
         }
         .hud-bottom .label { opacity: .85; }
         .hud-bottom .value { color: #4a90e2; font-weight: bold; }
+
+        /* Landscape: move HUD to a vertical left sidebar and avoid overlapping canvas */
+        @media (orientation: landscape) {
+            body .hud-bottom {
+                position: fixed;
+                left: 8px !important; top: 8px !important; bottom: 8px !important; right: auto !important;
+                width: var(--hudW) !important;
+                flex-direction: column !important; align-items: stretch !important; gap: 6px !important;
+                overflow-y: auto !important; overflow-x: hidden !important;
+            }
+            body .hud-bottom .chip { flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; font-size: 11px; }
+            body .game-area { padding-left: calc(var(--hudW) + 16px) !important; }
+            /* Ensure toggle button does not overlap HUD */
+            body .shop-toggle { right: 12px; bottom: 12px; }
+        }
 
         /* Slide-out panel behavior on mobile: panel hidden by default to show full game area */
         .shop-toggle {
