@@ -308,7 +308,9 @@ class TowerDefenseGame {
             const parentW = Math.max(320, parent.clientWidth);
             // Account for viewport height (minus header + paddings ~ 140px buffer)
             const header = document.querySelector('.game-header');
-            const headerH = header ? header.getBoundingClientRect().height : 0;
+            // When header becomes a left sidebar (mobile portrait), don't subtract its height
+            const sidebarLeft = window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
+            const headerH = (!sidebarLeft && header) ? header.getBoundingClientRect().height : 0;
             const availableH = Math.max(240, window.innerHeight - headerH - 32);
             // Keep 16:9
             let cssW = Math.min(parentW, Math.round(availableH * 16 / 9));
