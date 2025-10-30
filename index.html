@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tower Defense Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-header">
+            <h1>Tower Defense</h1>
+            <div class="game-stats">
+                <div class="stat">
+                    <span class="stat-label">Health:</span>
+                    <span id="health">100</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Money:</span>
+                    <span id="money">500</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Wave:</span>
+                    <span id="wave">1</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Score:</span>
+                    <span id="score">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Level:</span>
+                    <span id="level">1</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">💎:</span>
+                    <span id="diamonds">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="game-area">
+            <canvas id="gameCanvas" width="960" height="540" style="width: 960px; height: 540px;"></canvas>
+            
+            <div class="tower-shop">
+                <h3>Tower Shop</h3>
+                <div class="tower-options">
+                    <div class="tower-option" data-tower="basic">
+                        <div class="tower-icon basic-tower"></div>
+                        <div class="tower-info">
+                            <div class="tower-name">Basic Tower</div>
+                            <div class="tower-cost">$50</div>
+                        </div>
+                    </div>
+                    <div class="tower-option" data-tower="rapid">
+                        <div class="tower-icon rapid-tower"></div>
+                        <div class="tower-info">
+                            <div class="tower-name">Rapid Tower</div>
+                            <div class="tower-cost">$100</div>
+                        </div>
+                    </div>
+                    <div class="tower-option" data-tower="heavy">
+                        <div class="tower-icon heavy-tower"></div>
+                        <div class="tower-info">
+                            <div class="tower-name">Heavy Tower</div>
+                            <div class="tower-cost">$200</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="game-controls">
+                    <button id="startWave">Start Wave</button>
+                    <div class="auto-start-container">
+                        <input type="checkbox" id="autoStart" />
+                        <label for="autoStart">Auto Start</label>
+                    </div>
+                    <button id="pauseGame">Pause</button>
+                    <button id="restartGame">Restart</button>
+                    <button id="expandGrid">Expand Grid (💎<span id="expandDiamonds">5</span>)</button>
+                    <div class="speed-controls">
+                        <label>Speed:</label>
+                        <button id="speed1">1x</button>
+                        <button id="speed2">2x</button>
+                        <button id="speed3">3x</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="game-info">
+            <div class="selected-tower-info" id="selectedTowerInfo" style="display: none;">
+                <h4>Selected Tower</h4>
+                <div id="towerDetails"></div>
+                <button id="upgradeTower">Upgrade ($<span id="upgradeCost">0</span>)</button>
+                <button id="sellTower">Sell ($<span id="sellValue">0</span>)</button>
+            </div>
+        </div>
+
+        <!-- Context menu that appears near a clicked tower -->
+        <div id="towerContext" style="display:none;">
+            <button id="ctxUpgrade">Upgrade</button>
+            <button id="ctxSell">Sell</button>
+        </div>
+    </div>
+    
+    <script src="game.js"></script>
+</body>
+</html>

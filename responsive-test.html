@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Responsive Board Test (11x15)</title>
+    <style>
+        :root{--bg:#000;--blue:#4a90e2}
+        *{box-sizing:border-box}
+        body{margin:0;background:var(--bg);color:#e9eef6;font-family:Arial,Helvetica,sans-serif}
+        .wrap{max-width:1280px;margin:0 auto;padding:10px}
+        .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+        .meta{opacity:.8;font-size:12px}
+        .area{display:grid;grid-template-columns:1fr 280px;gap:10px}
+        @media (max-width:900px){.area{grid-template-columns:1fr}}
+        canvas{display:block;width:100%;height:auto;background:#000;border:2px solid rgba(74,144,226,.6);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06)}
+        .side{background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px}
+        .side h3{margin:0 0 8px;color:#cfe6ff;font-size:16px}
+        .row{display:flex;gap:10px;flex-wrap:wrap}
+        .pill{padding:6px 10px;border-radius:999px;background:#0f1a2a;border:1px solid rgba(255,255,255,.1);font-size:12px}
+    </style>
+    <script defer src="responsive-test.js"></script>
+    </head>
+<body>
+    <div class="wrap">
+        <div class="head">
+            <div>Responsive Board Test — 11x15, path row 6</div>
+            <div class="meta" id="meta"></div>
+        </div>
+        <div class="area">
+            <canvas id="board" width="960" height="540"></canvas>
+            <div class="side">
+                <h3>Info</h3>
+                <div class="row">
+                    <div class="pill" id="size"></div>
+                    <div class="pill" id="grid"></div>
+                    <div class="pill" id="cell"></div>
+                </div>
+                <p style="opacity:.85;font-size:13px;margin-top:10px">Resize the window to test auto-fit on desktop/mobile.
+                Canvas keeps 16:9, board centers with equal padding. Towers show range only on select.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
+
