@@ -76,7 +76,7 @@
         .hud-bottom .label { opacity: .85; }
         .hud-bottom .value { color: #4a90e2; font-weight: bold; }
 
-        /* Landscape: dock HUD alongside the game board (aligned to canvas bounds) */
+        /* Landscape: dock HUD and reserve space so canvas doesn't slide under it */
         @media (orientation: landscape) {
             .game-container { position: relative; }
             body .hud-bottom {
@@ -88,7 +88,8 @@
                 z-index: 10; /* keep below shop panel (15) */
             }
             body .hud-bottom .chip { flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; font-size: 11px; }
-            /* no padding shift; canvas keeps full width */
+            /* Reserve space on the left for HUD */
+            body .game-area { padding-left: calc(var(--hudW) + 16px) !important; }
         }
 
         /* Slide-out panel behavior on mobile: panel hidden by default to show full game area */
