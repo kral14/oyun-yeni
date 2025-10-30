@@ -76,19 +76,19 @@
         .hud-bottom .label { opacity: .85; }
         .hud-bottom .value { color: #4a90e2; font-weight: bold; }
 
-        /* Landscape: move HUD to a vertical left sidebar and avoid overlapping canvas */
+        /* Landscape: dock HUD alongside the game board (aligned to canvas bounds) */
         @media (orientation: landscape) {
+            .game-container { position: relative; }
             body .hud-bottom {
-                position: fixed;
-                left: 8px !important; top: 8px !important; bottom: 8px !important; right: auto !important;
-                width: var(--hudW) !important;
-                flex-direction: column !important; align-items: stretch !important; gap: 6px !important;
-                overflow-y: auto !important; overflow-x: hidden !important;
+                position: absolute; /* positioned via JS relative to container */
+                left: 0; top: 0; height: auto; right: auto; bottom: auto;
+                width: var(--hudW);
+                flex-direction: column; align-items: stretch; gap: 6px;
+                overflow-y: auto; overflow-x: hidden;
+                z-index: 10; /* keep below shop panel (15) */
             }
             body .hud-bottom .chip { flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; font-size: 11px; }
-            body .game-area { padding-left: calc(var(--hudW) + 16px) !important; }
-            /* Ensure toggle button does not overlap HUD */
-            body .shop-toggle { right: 12px; bottom: 12px; }
+            /* no padding shift; canvas keeps full width */
         }
 
         /* Slide-out panel behavior on mobile: panel hidden by default to show full game area */
@@ -220,6 +220,30 @@
             backdrop.addEventListener('click', closeShop);
             // Close on Escape
             document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeShop(); });
+        })();
+        // Position HUD along the left edge of the canvas in landscape
+        (function(){
+            const hud = document.getElementById('hudBottom');
+            const canvas = document.getElementById('gameCanvas');
+            const container = document.querySelector('.game-container');
+            if (!hud || !canvas || !container) return;
+            function alignHud(){
+                const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+                if (!isLandscape) { hud.style.left=''; hud.style.top=''; hud.style.height=''; return; }
+                const cRect = canvas.getBoundingClientRect();
+                const kRect = container.getBoundingClientRect();
+                const left = cRect.left - kRect.left;
+                const top = cRect.top - kRect.top;
+                const height = cRect.height;
+                hud.style.left = Math.max(0, Math.round(left - (parseInt(getComputedStyle(hud).width)||72) - 8)) + 'px';
+                hud.style.top = Math.round(top) + 'px';
+                hud.style.height = Math.round(height) + 'px';
+            }
+            const ro = new ResizeObserver(alignHud);
+            ro.observe(canvas);
+            window.addEventListener('resize', alignHud);
+            window.addEventListener('orientationchange', function(){ setTimeout(alignHud, 200); });
+            setTimeout(alignHud, 50);
         })();
         // Register service worker for PWA installability
         (function(){
