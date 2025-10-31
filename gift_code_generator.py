@@ -95,6 +95,9 @@ class GiftCodeGenerator:
                                  insertbackground=fg_color, padx=5, pady=5)
         self.code_text.pack(fill=tk.BOTH, expand=True)
         
+        # Store the generated code separately for clean copying
+        self.generated_code = ""
+        
         # Copy button
         copy_btn = tk.Button(code_frame, text="📋 Kodu Kopyalə", 
                            command=self.copy_code,
@@ -136,9 +139,19 @@ class GiftCodeGenerator:
             json_str = json.dumps(data, separators=(',', ':'))
             encoded = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
             
-            # Display code
+            # Store the code for clean copying
+            self.generated_code = encoded
+            
+            # Display code (ensure no extra characters)
             self.code_text.delete(1.0, tk.END)
             self.code_text.insert(1.0, encoded)
+            
+            # Verify what was inserted matches
+            displayed_code = self.code_text.get(1.0, tk.END).strip()
+            if displayed_code != encoded:
+                print(f"⚠️ XƏBƏRDARLIQ: Text widget-dakı kod uyğun gəlmir!")
+                print(f"   Orijinal: {encoded}")
+                print(f"   Widget: {displayed_code}")
             
             # Print to console for verification
             print("\n" + "="*60)
@@ -171,20 +184,23 @@ class GiftCodeGenerator:
             
             print("="*60 + "\n")
             
-            # Auto copy to clipboard
+            # Auto copy to clipboard (use stored code, not from widget)
             try:
-                pyperclip.copy(encoded)
+                pyperclip.copy(self.generated_code)
+                print(f"📋 Kod clipboard-a kopyalandı: {self.generated_code}")
                 messagebox.showinfo("Uğur", f"Kod yaradıldı və clipboard-a kopyalandı!\n\n"
                                           f"💰 Pul: {money}\n"
                                           f"💎 Elmas: {diamonds}\n"
                                           f"⭐ Ulduz: {stars}\n\n"
                                           f"Kod konsolda göstərildi və yoxlanıldı!")
-            except:
+            except Exception as copy_err:
+                print(f"⚠️ Clipboard xətası: {copy_err}")
                 messagebox.showinfo("Uğur", f"Kod yaradıldı!\n\n"
                                           f"💰 Pul: {money}\n"
                                           f"💎 Elmas: {diamonds}\n"
                                           f"⭐ Ulduz: {stars}\n\n"
-                                          f"Kod konsolda göstərildi və yoxlanıldı!")
+                                          f"Kod konsolda göstərildi və yoxlanıldı!\n"
+                                          f"⚠️ Clipboard-a kopyalama uğursuz oldu.")
                 
         except ValueError:
             messagebox.showerror("Xəta", "Yalnız rəqəm daxil edin!")
@@ -193,35 +209,46 @@ class GiftCodeGenerator:
             print(f"\n❌ XƏTA: {str(e)}\n")
     
     def copy_code(self):
-        code = self.code_text.get(1.0, tk.END).strip()
-        if not code:
-            messagebox.showwarning("Xəbərdarlıq", "Əvvəlcə kod yaradın!")
-            return
+        # Use stored code instead of reading from widget to avoid encoding issues
+        if not self.generated_code:
+            # Fallback: try to get from widget
+            code_from_widget = self.code_text.get(1.0, tk.END).strip()
+            if not code_from_widget:
+                messagebox.showwarning("Xəbərdarlıq", "Əvvəlcə kod yaradın!")
+                return
+            code_to_copy = code_from_widget
+        else:
+            code_to_copy = self.generated_code
         
         try:
-            pyperclip.copy(code)
+            # Copy the stored code (not from widget)
+            pyperclip.copy(code_to_copy)
             
             # Verify the code that will be copied
             print("\n" + "="*60)
             print("📋 KOD KOPYALANIR")
             print("="*60)
-            print(f"Kod: {code}")
-            print(f"Uzunluq: {len(code)} simvol")
+            print(f"Kod: {code_to_copy}")
+            print(f"Uzunluq: {len(code_to_copy)} simvol")
+            print(f"Kod bytes: {code_to_copy.encode('utf-8')}")
             
             # Try to decode and verify
             try:
-                decoded_json = base64.b64decode(code).decode('utf-8')
+                decoded_json = base64.b64decode(code_to_copy).decode('utf-8')
                 decoded_data = json.loads(decoded_json)
                 print("✅ Kod uyğundur və dekodlaşdırıla bilir!")
+                print(f"   JSON: {decoded_json}")
                 print(f"   Məlumat: {decoded_data}")
             except Exception as e:
-                print(f"⚠️ XƏBƏRDARLIQ: Kod dekodlaşdırıla bilməz: {e}")
+                print(f"❌ XƏTA: Kod dekodlaşdırıla bilməz: {e}")
+                print(f"   Kod reprezentasiyası: {repr(code_to_copy)}")
             
             print("="*60 + "\n")
             
             messagebox.showinfo("Uğur", "Kod clipboard-a kopyalandı və konsolda yoxlanıldı!")
-        except:
-            messagebox.showerror("Xəta", "Clipboard-a kopyalama mümkün olmadı!")
+        except Exception as e:
+            print(f"❌ Clipboard xətası: {e}")
+            messagebox.showerror("Xəta", f"Clipboard-a kopyalama mümkün olmadı: {e}")
 
 
 def main():

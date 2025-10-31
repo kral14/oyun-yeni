@@ -992,7 +992,8 @@ class TowerDefenseGame {
         const giftCodeInput = document.getElementById('giftCodeInput');
         if (redeemCodeBtn && giftCodeInput) {
             const handleRedeem = () => {
-                const code = giftCodeInput.value.trim().toUpperCase();
+                // DON'T use toUpperCase() - it corrupts base64 codes!
+                const code = giftCodeInput.value.trim();
                 this.redeemGiftCode(code);
             };
             redeemCodeBtn.addEventListener('click', handleRedeem);
