@@ -4,7 +4,7 @@
 
   const state = {
     cols: 15,
-    rows: 11,
+    rows: 9,
     gridSize: 32,
     offsetX: 0,
     offsetY: 0,
@@ -101,8 +101,8 @@
   }
 
   function drawPath(){
-    // path row 6 (0-indexed: row 5), full left->right
-    const row = 5;
+    // path passes through middle row to keep symmetry
+    const row = Math.floor(state.rows/2);
     const start = boardToPx(0,row), end = boardToPx(state.cols-1,row);
     const outer = Math.max(1, Math.round(state.gridSize*0.8));
     const inner = Math.max(1, Math.round(state.gridSize*0.6));
@@ -178,7 +178,7 @@
   });
 
   window.addEventListener('resize', ()=>{ resize(); render(); });
-  window.addEventListener('load', ()=>{ resize(); initContent(); render(); });
+  window.addEventListener('load', ()=>{ resize(); initContent(); render(); setupTabs(); setupBoardShop(); });
   
   // Controls: rows/cols
   document.getElementById('rowsInput')?.addEventListener('input', (e)=>{
@@ -198,6 +198,58 @@
     resize(); render();
   }
   zoomInput?.addEventListener('input', setZoomFromSlider);
+
+  function setupTabs(){
+    const tabs = document.querySelectorAll('.tab');
+    const pages = document.querySelectorAll('.tabpage');
+    tabs.forEach(t=>t.addEventListener('click', ()=>{
+      tabs.forEach(x=>x.classList.remove('active'));
+      pages.forEach(p=>p.classList.remove('active'));
+      t.classList.add('active');
+      const id = t.getAttribute('data-tab');
+      const page = document.getElementById(id);
+      if (page) page.classList.add('active');
+    }));
+  }
+
+  // Diamonds and board expansion shop
+  state.diamonds = 20;
+  const boardDimsEl = () => document.getElementById('boardDims');
+  const diamondsEl = () => document.getElementById('diamonds');
+  function refreshBoardShop(){
+    if (boardDimsEl()) boardDimsEl().textContent = `${state.rows}×${state.cols}`;
+    if (diamondsEl()) diamondsEl().textContent = String(state.diamonds);
+    // Enable/disable buttons based on cost
+    const br = document.getElementById('buyRows');
+    const bc = document.getElementById('buyCol');
+    if (br) br.disabled = state.diamonds < parseInt(br.getAttribute('data-cost')||'0',10);
+    if (bc) bc.disabled = state.diamonds < parseInt(bc.getAttribute('data-cost')||'0',10);
+  }
+
+  function setupBoardShop(){
+    refreshBoardShop();
+    const br = document.getElementById('buyRows');
+    const bc = document.getElementById('buyCol');
+    br?.addEventListener('click', ()=>{
+      const cost = parseInt(br.getAttribute('data-cost')||'0',10);
+      if (state.diamonds < cost) return;
+      state.diamonds -= cost;
+      // Add one row on top and one on bottom, keep middle path
+      state.rows = Math.min(60, state.rows + 2);
+      // Auto re-fit occurs in resize(); smaller grid -> larger cells automatically
+      document.getElementById('rowsInput') && (document.getElementById('rowsInput').value = String(state.rows));
+      resize(); render(); refreshBoardShop();
+    });
+    bc?.addEventListener('click', ()=>{
+      const cost = parseInt(bc.getAttribute('data-cost')||'0',10);
+      if (state.diamonds < cost) return;
+      state.diamonds -= cost;
+      // Add single column to the right, while keeping center anchoring (fit logic centers it)
+      state.cols = Math.min(80, state.cols + 1);
+      document.getElementById('colsInput') && (document.getElementById('colsInput').value = String(state.cols));
+      resize(); render(); refreshBoardShop();
+    });
+  }
 
   // Fit & Center
   document.getElementById('fitCenter')?.addEventListener('click', ()=>{

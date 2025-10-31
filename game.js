@@ -25,12 +25,25 @@ class TowerDefenseGame {
         this.towers = [];
         this.enemies = [];
         this.bullets = [];
+        this.enemyBullets = [];
+        this.explosions = []; // Explosion effects (ice, fire, etc.)
         this.selectedTower = null;
         this.selectedTowerType = 'basic';
         this.towerCosts = {
             basic: 50,
             rapid: 100,
-            heavy: 200
+            heavy: 200,
+            ice: 0,      // Stars only
+            flame: 0,    // Stars only
+            laser: 0,    // Stars only
+            plasma: 0    // Stars only
+        };
+        
+        this.towerStarCosts = {
+            ice: 1,
+            flame: 2,
+            laser: 3,
+            plasma: 4
         };
         
         // Path for enemies (computed dynamically via A*)
@@ -76,17 +89,46 @@ class TowerDefenseGame {
         this.gridOffsetX = 0;
         this.gridOffsetY = 0;
         this.updateGridDimensions();
+        // Stable cell id grid to keep towers locked to cells across expansions
+        this.cellIdGrid = [];
+        this.nextCellId = 1;
+        this.initCellIds();
         
         // Grid expansion system
         this.maxCols = 48; // maximum grid size
         this.maxRows = 27; // maximum grid size
         this.expansionCost = 100; // cost to expand grid
         this.expansionDiamonds = 5; // diamonds needed to expand grid
-        this.diamonds = parseInt(localStorage.getItem('towerDefenseDiamonds') || '0'); // player's diamonds from localStorage
+        // Default diamonds: at least 500
+        this.diamonds = parseInt(localStorage.getItem('towerDefenseDiamonds') || '500');
+        if (!Number.isFinite(this.diamonds) || this.diamonds < 500) {
+            this.diamonds = 500;
+            localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        }
+        
+        // Stars system (persistent across restarts)
+        const savedStars = localStorage.getItem('towerDefenseStars');
+        if (savedStars === null || savedStars === '0') {
+            // İlk dəfə və ya sıfır olduqda, başlanğıc ulduz ver: 100
+            this.stars = 100;
+            localStorage.setItem('towerDefenseStars', this.stars.toString());
+        } else {
+            this.stars = parseInt(savedStars);
+            if (!Number.isFinite(this.stars) || this.stars < 0) {
+                this.stars = 100;
+                localStorage.setItem('towerDefenseStars', this.stars.toString());
+            }
+        }
+        
+        // Redeemed gift codes (prevent reuse)
+        this.redeemedCodes = JSON.parse(localStorage.getItem('towerDefenseRedeemedCodes') || '[]');
         
         // Game speed system
         this.gameSpeed = 1; // 1x, 2x, 3x speed
         this.lastUpdateTime = 0;
+        
+        // Wave message display
+        this.waveMessage = null; // {text, until}
         
         // Debug system
         this.debugMode = true; // Enable debug to track tower deletion issues
@@ -103,6 +145,10 @@ class TowerDefenseGame {
         this.hoverTimer = null;
         this.longPressTimer = null;
         this.lastMovePos = { x: 0, y: 0 };
+
+        // Grid expansion reveal animation
+        this.expandAnim = null; // { cells:[{col,row}], startedAt, duration }
+        // Range UI removed per request
 
         this.init();
     }
@@ -121,7 +167,7 @@ class TowerDefenseGame {
         const cellH = Math.floor((ch - pad * 2) / this.rows);
         this.gridSize = Math.max(10, Math.min(cellW, cellH));
 
-        // Compute grid offsets to center with padding
+        // Compute grid offsets to center with padding - ALWAYS center the grid
         const boardW = this.gridSize * this.cols;
         const boardH = this.gridSize * this.rows;
         this.gridOffsetX = Math.round((cw - boardW) / 2);
@@ -148,6 +194,26 @@ class TowerDefenseGame {
         // Scale factor relative to base size
         this.scale = this.gridSize / this.baseGridSize;
         this.debugLog(`Grid fixed: ${this.gridCols}x${this.gridRows}, gridSize=${this.gridSize}, offset=(${this.gridOffsetX},${this.gridOffsetY}), scale=${this.scale.toFixed(2)}`);
+    }
+
+    initCellIds() {
+        this.cellIdGrid = new Array(this.rows);
+        for (let r = 0; r < this.rows; r++) {
+            this.cellIdGrid[r] = new Array(this.cols);
+            for (let c = 0; c < this.cols; c++) {
+                this.cellIdGrid[r][c] = this.nextCellId++;
+            }
+        }
+    }
+
+    getCellPosById(cellId) {
+        for (let r = 0; r < this.cellIdGrid.length; r++) {
+            const rowArr = this.cellIdGrid[r];
+            for (let c = 0; c < rowArr.length; c++) {
+                if (rowArr[c] === cellId) return { col: c, row: r };
+            }
+        }
+        return null;
     }
     
     expandGrid() {
@@ -210,6 +276,18 @@ class TowerDefenseGame {
         this.debugLog(`🔄 Qüllələrin mövqeləri yenilənir...`);
         
         for (const tower of this.towers) {
+            // If tower is bound to a stable cell id, resolve current col/row
+            if (tower.cellId) {
+                const pos = this.getCellPosById(tower.cellId);
+                if (pos) { tower.col = pos.col; tower.row = pos.row; }
+            } else {
+                // Backfill logical grid position if missing (legacy towers)
+                if (typeof tower.col !== 'number' || typeof tower.row !== 'number') {
+                    const c = Math.max(0, Math.min(this.gridCols - 1, Math.floor((tower.x - this.gridOffsetX) / this.gridSize)));
+                    const r = Math.max(0, Math.min(this.gridRows - 1, Math.floor((tower.y - this.gridOffsetY) / this.gridSize)));
+                    tower.col = c; tower.row = r;
+                }
+            }
             // Calculate new pixel position based on grid cell
             const newX = this.gridOffsetX + tower.col * this.gridSize + this.gridSize / 2;
             const newY = this.gridOffsetY + tower.row * this.gridSize + this.gridSize / 2;
@@ -219,6 +297,8 @@ class TowerDefenseGame {
             // Update tower position
             tower.x = newX;
             tower.y = newY;
+            // Recompute range to match new scale
+            tower.range = this.getTowerRange(tower.type);
         }
         
         this.debugLog(`✅ ${this.towers.length} qüllənin mövqeyi yeniləndi`);
@@ -284,6 +364,227 @@ class TowerDefenseGame {
         });
         document.getElementById(`speed${speed}`).classList.add('active');
     }
+
+    // Special tab: +2 rows (top+bottom) purchase with diamonds
+    buyRows() {
+        const cost = 5;
+        // Allow during pause regardless of wave/enemies; otherwise restrict
+        if (!this.gameState.isPaused && (this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1)) {
+            this.debugWarning('Sətir alma yalnız oyun başlamadan mümkündür.');
+            return;
+        }
+        if (this.diamonds < cost) { this.debugWarning('Kifayət qədər almaz yoxdur.'); return; }
+        if (this.rows + 2 > this.maxRows) { this.debugWarning('Maksimum sətir sayına çatılıb.'); return; }
+        this.diamonds -= cost;
+        // Extend ID grid: add one row at TOP and one at BOTTOM with new ids
+        const newTop = new Array(this.cols);
+        for (let c = 0; c < this.cols; c++) newTop[c] = this.nextCellId++;
+        const newBottom = new Array(this.cols);
+        for (let c = 0; c < this.cols; c++) newBottom[c] = this.nextCellId++;
+        this.cellIdGrid.unshift(newTop);
+        this.cellIdGrid.push(newBottom);
+        this.rows = this.cellIdGrid.length; // one up, one down keeps middle path
+        this.updateGridDimensions(); // This recalculates gridSize (smaller) and re-centers grid
+        // Towers' col/row stay the same - just recalculate pixel positions
+        this.updateTowerPositions();
+        // keep start at (0, mid) and goal at (cols-1, mid)
+        const midRow = Math.floor(this.gridRows / 2);
+        this.startCell = { col: 0, row: midRow };
+        this.goalCell = { col: this.gridCols - 1, row: midRow };
+        this.recomputePath();
+        // Animation cells for top and bottom new rows
+        const topRowIdx = 0, bottomRowIdx = this.gridRows - 1; const cells = [];
+        for (let c = 0; c < this.gridCols; c++) { cells.push({ col: c, row: topRowIdx }); }
+        for (let c = 0; c < this.gridCols; c++) { cells.push({ col: c, row: bottomRowIdx }); }
+        this.expandAnim = { cells, startedAt: Date.now(), duration: 600 };
+        // Force UI refresh to show new dimensions
+        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        this.debugSuccess(`Grid genişləndi: ${this.gridCols}×${this.gridRows}, yeni hüceyrələr hazırdır`);
+        this.updateUI();
+    }
+
+    // Special tab: +1 column added to the right side from center
+    buyCol() {
+        const cost = 3;
+        if (!this.gameState.isPaused && (this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1)) {
+            this.debugWarning('Sütun alma yalnız oyun başlamadan mümkündür.');
+            return;
+        }
+        if (this.diamonds < cost) { this.debugWarning('Kifayət qədər almaz yoxdur.'); return; }
+        if (this.cols + 1 > this.maxCols) { this.debugWarning('Maksimum sütun sayına çatılıb.'); return; }
+        this.diamonds -= cost;
+        // Extend ID grid: add one column on the RIGHT with new ids
+        for (let r = 0; r < this.cellIdGrid.length; r++) {
+            this.cellIdGrid[r].push(this.nextCellId++);
+        }
+        this.cols = this.cellIdGrid[0].length; // extend to the right
+        this.updateGridDimensions(); // This recalculates gridSize (smaller) and re-centers grid
+        // Towers' col/row stay the same - just recalculate pixel positions
+        this.updateTowerPositions();
+        // update goal to new rightmost column
+        this.goalCell.col = this.gridCols - 1;
+        this.startCell.col = 0;
+        this.recomputePath();
+        // Animation cells for the new rightmost column
+        const newCol = this.gridCols - 1; const cells2 = [];
+        for (let r = 0; r < this.gridRows; r++) { cells2.push({ col: newCol, row: r }); }
+        this.expandAnim = { cells: cells2, startedAt: Date.now(), duration: 600 };
+        // Force UI refresh to show new dimensions
+        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        this.debugSuccess(`Grid genişləndi: ${this.gridCols}×${this.gridRows}, yeni hüceyrələr hazırdır`);
+        this.updateUI();
+    }
+    
+    redeemGiftCode(code) {
+        if (!code || code.length < 10) {
+            this.showGiftCodeMessage('❌ Kod çox qısadır!', 'error');
+            return;
+        }
+        
+        // Check if already redeemed
+        if (this.redeemedCodes.includes(code)) {
+            this.showGiftCodeMessage('⚠️ Bu kod artıq istifadə edilib!', 'error');
+            return;
+        }
+        
+        // Decode gift code
+        try {
+            // Debug: Show original input
+            this.debugLog(`🔍 Orijinal kod (uzunluq: ${code.length}): ${JSON.stringify(code.substring(0, 50))}...`);
+            
+            // Step 1: Remove all control characters and invisible characters
+            let cleaned = code
+                .replace(/[\x00-\x1F\x7F-\x9F]/g, '')  // Remove control characters
+                .replace(/[\u200B-\u200D\uFEFF]/g, '')  // Remove zero-width spaces
+                .trim();
+            
+            this.debugLog(`🔍 Trim sonrası (uzunluq: ${cleaned.length}): ${JSON.stringify(cleaned.substring(0, 50))}...`);
+            
+            // Step 2: Remove quotes if present
+            cleaned = cleaned.replace(/^["']+|["']+$/g, '');
+            
+            // Step 3: Remove all whitespace (spaces, newlines, tabs, etc.)
+            cleaned = cleaned.replace(/\s+/g, '');
+            
+            // Step 4: Remove any invalid base64 characters (keep only A-Z, a-z, 0-9, +, /, =, -, _)
+            cleaned = cleaned.replace(/[^A-Za-z0-9+\/=\-_]/g, '');
+            
+            this.debugLog(`🔍 Təmizlənmiş kod (uzunluq: ${cleaned.length}): ${cleaned.substring(0, 50)}...`);
+            
+            if (cleaned.length === 0) {
+                throw new Error('Kod tamamilə silindi - etibarsız simvollar');
+            }
+            
+            // Step 5: Convert URL-safe base64 to standard base64
+            cleaned = cleaned.replace(/-/g, '+').replace(/_/g, '/');
+            
+            // Step 6: Add padding if needed (base64 requires length to be multiple of 4)
+            const paddingNeeded = (4 - (cleaned.length % 4)) % 4;
+            if (paddingNeeded > 0) {
+                cleaned += '='.repeat(paddingNeeded);
+                this.debugLog(`🔧 Padding əlavə edildi: ${paddingNeeded} simvol`);
+            }
+            
+            this.debugLog(`🔍 Son kod (uzunluq: ${cleaned.length}): ${cleaned.substring(0, 50)}...`);
+            
+            // Try to decode - first as base64, then as plain JSON
+            let data = null;
+            let decodeError = null;
+            
+            // Try base64 decode first
+            try {
+                const decoded = atob(cleaned);
+                this.debugLog(`✅ Base64 dekodlaşdırıldı: ${decoded}`);
+                
+                try {
+                    data = JSON.parse(decoded);
+                    this.debugLog(`✅ JSON parse edildi: ${JSON.stringify(data)}`);
+                } catch (jsonError) {
+                    decodeError = `JSON parse xətası: ${jsonError.message}, Decoded string: ${decoded.substring(0, 100)}`;
+                    this.debugError(decodeError);
+                    throw jsonError;
+                }
+            } catch (b64Error) {
+                decodeError = `Base64 decode xətası: ${b64Error.message}`;
+                this.debugError(`⚠️ Base64 decode uğursuz: ${b64Error.message}`);
+                this.debugError(`   Kod: ${cleaned.substring(0, 50)}...`);
+                
+                // If base64 fails, try as plain JSON (for debugging)
+                try {
+                    const jsonStr = code.trim().replace(/^["']|["']$/g, '').replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+                    data = JSON.parse(jsonStr);
+                    this.debugLog(`✅ JSON olaraq dekodlaşdırıldı`);
+                } catch (jsonError) {
+                    this.debugError(`❌ Hər iki decode uğursuz:`);
+                    this.debugError(`   Base64: ${b64Error.message}`);
+                    this.debugError(`   JSON: ${jsonError.message}`);
+                    this.debugError(`   Original: ${JSON.stringify(code.substring(0, 100))}`);
+                    this.debugError(`   Cleaned: ${cleaned.substring(0, 100)}`);
+                    throw new Error(`Kod dekodlaşdırıla bilmədi. Generator ilə yaradılmış base64 kodu yoxlayın. Konsolda detallı məlumat var.`);
+                }
+            }
+            
+            if (!data) {
+                throw new Error('Kod dekodlaşdırıldı, amma məlumat tapılmadı');
+            }
+            
+            // Validate structure
+            if (!data || (!data.money && !data.diamonds && !data.stars)) {
+                throw new Error('Invalid code format');
+            }
+            
+            // Apply rewards
+            const moneyReward = Number(data.money) || 0;
+            const diamondsReward = Number(data.diamonds) || 0;
+            const starsReward = Number(data.stars) || 0;
+            
+            if (moneyReward > 0) {
+                this.gameState.money += moneyReward;
+            }
+            if (diamondsReward > 0) {
+                this.diamonds += diamondsReward;
+                localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+            }
+            if (starsReward > 0) {
+                this.stars += starsReward;
+                localStorage.setItem('towerDefenseStars', this.stars.toString());
+            }
+            
+            // Mark as redeemed
+            this.redeemedCodes.push(code);
+            localStorage.setItem('towerDefenseRedeemedCodes', JSON.stringify(this.redeemedCodes));
+            
+            // Clear input
+            const giftCodeInput = document.getElementById('giftCodeInput');
+            if (giftCodeInput) giftCodeInput.value = '';
+            
+            // Show success message
+            let rewardText = [];
+            if (moneyReward > 0) rewardText.push(`💰 ${moneyReward} pul`);
+            if (diamondsReward > 0) rewardText.push(`💎 ${diamondsReward} elmas`);
+            if (starsReward > 0) rewardText.push(`⭐ ${starsReward} ulduz`);
+            
+            this.showGiftCodeMessage(`✅ Hədiyyə alındı: ${rewardText.join(', ')}`, 'success');
+            this.updateUI();
+            this.debugSuccess(`🎁 Kod istifadə edildi: ${rewardText.join(', ')}`);
+        } catch (e) {
+            this.showGiftCodeMessage('❌ Etibarsız kod! Generator ilə yaradılmış base64 kodu daxil edin.', 'error');
+            this.debugError(`Gift code decode failed: ${e.message}`);
+        }
+    }
+    
+    showGiftCodeMessage(message, type = 'info') {
+        const messageEl = document.getElementById('giftCodeMessage');
+        if (!messageEl) return;
+        
+        messageEl.textContent = message;
+        messageEl.style.color = type === 'success' ? '#4CAF50' : type === 'error' ? '#F44336' : '#a0a0a0';
+        
+        // Auto clear after 5 seconds
+        setTimeout(() => {
+            messageEl.textContent = '';
+        }, 5000);
+    }
     
     debugLog(message, type = 'INFO') {
         if (this.debugMode) {
@@ -329,11 +630,11 @@ class TowerDefenseGame {
         const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
         this.lastOrientationPortrait = portrait;
         if (portrait) {
-            this.rows = 11; // expand vertically feel
-            this.cols = 10;
+            this.rows = 9;
+            this.cols = 12;
         } else {
             this.rows = 9;
-            this.cols = 20;
+            this.cols = 15; // requested default
         }
     }
     
@@ -369,28 +670,35 @@ class TowerDefenseGame {
             this.ctx.setTransform(1,0,0,1,0,0);
             this.updateGridDimensions();
 
-            // Magnet-like tower shop sizing and alignment
-            const shop = document.querySelector('.tower-shop');
+            // Overlay shop: align with canvas bounds (top and bottom) and avoid header overlap
             const area = document.querySelector('.game-area');
-            const isStacked = window.matchMedia('(max-width: 900px)').matches;
-            if (shop && area) {
-                if (isStacked) {
-                    // Stack layout: full width below canvas
-                    area.style.gridTemplateColumns = '1fr';
-                    shop.style.width = '100%';
-                    shop.style.height = 'auto';
-                    shop.style.maxHeight = '';
-                    shop.style.overflow = '';
+            if (area) area.style.gridTemplateColumns = '1fr';
+
+            const shop = document.querySelector('.tower-shop');
+            if (shop) {
+                const rect = this.canvas.getBoundingClientRect();
+                // Prefer showing to the right of the canvas if space allows, else pin to right edge
+                const gap = 12;
+                const canPlaceRight = (window.innerWidth - rect.right) > (shop.offsetWidth + gap * 2);
+                shop.style.position = 'fixed';
+                shop.style.top = Math.max(0, Math.round(rect.top)) + 'px';
+                shop.style.height = Math.round(rect.height) + 'px';
+                shop.style.maxHeight = Math.round(rect.height) + 'px';
+                if (canPlaceRight) {
+                    shop.style.left = Math.round(rect.right + gap) + 'px';
+                    shop.style.right = '';
                 } else {
-                    // Side-by-side: clamp width and height to canvas
-                    const shopW = Math.max(220, Math.min(320, Math.round(cssW * 0.28)));
-                    area.style.gridTemplateColumns = cssW + 'px ' + shopW + 'px';
-                    shop.style.width = shopW + 'px';
-                    shop.style.height = cssH + 'px';
-                    shop.style.maxHeight = cssH + 'px';
-                    shop.style.overflow = 'auto';
+                    shop.style.left = '';
+                    shop.style.right = gap + 'px';
                 }
+                shop.style.overflowY = 'auto';
             }
+
+            // Update u/h size labels near the canvas
+            const labelW = document.getElementById('labelW');
+            const labelH = document.getElementById('labelH');
+            if (labelW) labelW.textContent = 'u: ' + cssW;
+            if (labelH) labelH.textContent = 'h: ' + cssH;
         };
 
         const doResize = () => {
@@ -485,6 +793,28 @@ class TowerDefenseGame {
         this.canvas.addEventListener('mousedown', (e) => {
             if (this.gameState.gameOver) return;
             const { x, y } = this.getCanvasCoords(e);
+            // Right-click should open context only, never start placement
+            if (e.button === 2) {
+                const tower = this.getTowerAtPosition(x, y);
+                if (tower) {
+                    this.selectTower(tower);
+                    this.showTowerContextAt(tower);
+                }
+                return;
+            }
+            // Handle range UI clicks when a tower is selected
+            if (this.selectedTower && this.rangeUiRects) {
+            const p = this.rangeUiRects.plus, m = this.rangeUiRects.minus;
+                const hit = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+                if (hit(p)) {
+                    // removed
+                    return;
+                }
+                if (hit(m)) {
+                    // removed
+                    return;
+                }
+            }
 
             this.debugLog(`Mouse down at (${x}, ${y})`);
             
@@ -513,8 +843,12 @@ class TowerDefenseGame {
                 this.debugLog(`No tower at (${x}, ${y}) - Starting new tower placement`);
                 // Start new tower drag ghost only if no tower is selected
                 if (!this.selectedTower) {
-                    const cost = this.towerCosts[this.selectedTowerType];
-                    this.debugLog(`Tower type: ${this.selectedTowerType}, Cost: $${cost}, Money: $${this.gameState.money}`);
+                    // Only left-click can start placement
+                    if (e.button !== 0) return;
+                    const type = this.selectedTowerType || 'basic';
+                    this.selectedTowerType = type;
+                    const cost = this.towerCosts[type] || this.towerCosts['basic'];
+                    this.debugLog(`Tower type: ${type}, Cost: $${cost}, Money: $${this.gameState.money}`);
                     if (this.gameState.money >= cost) {
                         this.isDraggingNew = true;
                         // Snap to grid center of the cell under cursor
@@ -564,6 +898,7 @@ class TowerDefenseGame {
 
         this.canvas.addEventListener('mouseup', (e) => {
             if (this.gameState.gameOver) return;
+            if (e.button !== 0) return; // only left click finalizes placement
             const { x, y } = this.getCanvasCoords(e);
             const wasDraggingNew = this.isDraggingNew;
             clearTimeout(this.longPressTimer);
@@ -647,9 +982,26 @@ class TowerDefenseGame {
         });
         
         // Grid expansion
-        document.getElementById('expandGrid').addEventListener('click', () => {
-            this.expandGrid();
-        });
+        const buyRowsBtn = document.getElementById('buyRows');
+        const buyColBtn = document.getElementById('buyCol');
+        buyRowsBtn && buyRowsBtn.addEventListener('click', () => this.buyRows());
+        buyColBtn && buyColBtn.addEventListener('click', () => this.buyCol());
+        
+        // Gift code redemption
+        const redeemCodeBtn = document.getElementById('redeemCode');
+        const giftCodeInput = document.getElementById('giftCodeInput');
+        if (redeemCodeBtn && giftCodeInput) {
+            const handleRedeem = () => {
+                const code = giftCodeInput.value.trim().toUpperCase();
+                this.redeemGiftCode(code);
+            };
+            redeemCodeBtn.addEventListener('click', handleRedeem);
+            giftCodeInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    handleRedeem();
+                }
+            });
+        }
         
         // Speed controls
         document.getElementById('speed1').addEventListener('click', () => {
@@ -663,18 +1015,33 @@ class TowerDefenseGame {
         });
 
         // Floating context menu actions
-        document.getElementById('ctxUpgrade').addEventListener('click', () => {
-            this.upgradeTower();
-            this.hideTowerContext();
-        });
-        document.getElementById('ctxSell').addEventListener('click', () => {
+        const ctxSellBtn = document.getElementById('ctxSell');
+        ctxSellBtn && ctxSellBtn.addEventListener('click', () => {
             this.sellTower();
             this.hideTowerContext();
         });
+        const btnHeal = document.getElementById('ctxHeal');
+        btnHeal && btnHeal.addEventListener('click', () => { this.healTower(); });
+        const btnShield = document.getElementById('ctxShield');
+        btnShield && btnShield.addEventListener('click', () => { this.shieldTower(); });
+        const btnRange = document.getElementById('ctxRange');
+        btnRange && btnRange.addEventListener('click', () => { this.upgradeRange(); });
+        const btnDmg = document.getElementById('ctxDamage');
+        btnDmg && btnDmg.addEventListener('click', () => { this.upgradeDamage(); });
+        const btnRate = document.getElementById('ctxRate');
+        btnRate && btnRate.addEventListener('click', () => { this.upgradeFireRate(); });
+        const btnAw = document.getElementById('ctxAwaken');
+        btnAw && btnAw.addEventListener('click', () => { this.awakenTower(); });
 
         // Disable browser context menu on canvas
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            const { x, y } = this.getCanvasCoords(e);
+            const tower = this.getTowerAtPosition(x, y);
+            if (tower) {
+                this.selectTower(tower);
+                this.showTowerContextAt(tower);
+            }
             return false;
         });
         
@@ -701,10 +1068,10 @@ class TowerDefenseGame {
     
     selectTowerType(type) {
         this.selectedTowerType = type;
-        document.querySelectorAll('.tower-option').forEach(option => {
-            option.classList.remove('selected');
-        });
-        document.querySelector(`[data-tower="${type}"]`).classList.add('selected');
+        const options = document.querySelectorAll('.tower-option');
+        options && options.forEach(option => option.classList.remove('selected'));
+        const el = document.querySelector(`[data-tower="${type}"]`);
+        if (el) el.classList.add('selected');
     }
     
     // Utility: find tower at position
@@ -901,6 +1268,7 @@ class TowerDefenseGame {
     
     isValidTowerPosition(x, y, excludeTower = null) {
         this.debugTower(`Checking validity for position (${x}, ${y}), excludeTower: ${excludeTower ? 'YES' : 'NO'}`);
+        this.debugTower(`Current grid: ${this.gridCols}×${this.gridRows}, offset=(${this.gridOffsetX},${this.gridOffsetY}), size=${this.gridSize}`);
         
         // Snap to center of the cell under cursor
         const cellCol = Math.floor((x - this.gridOffsetX) / this.gridSize);
@@ -910,9 +1278,9 @@ class TowerDefenseGame {
         
         this.debugTower(`Snapped to: (${cellCol}, ${cellRow}) -> (${gridX}, ${gridY})`);
         
-        // Check bounds
+        // Check bounds - ensure we're using current grid dimensions
         if (cellCol < 0 || cellCol >= this.gridCols || cellRow < 0 || cellRow >= this.gridRows) {
-            this.debugError(`Position out of bounds: (${cellCol}, ${cellRow}) - Grid: ${this.gridCols}x${this.gridRows}`);
+            this.debugError(`Position out of bounds: (${cellCol}, ${cellRow}) - Grid: ${this.gridCols}×${this.gridRows} (cols=${this.cols}, rows=${this.rows})`);
             return false;
         }
         
@@ -1019,13 +1387,24 @@ class TowerDefenseGame {
     
     placeTower(x, y) {
         console.log(`\n=== KULE YERLEŞTİRME BAŞLADI ===`);
-        const cost = this.towerCosts[this.selectedTowerType];
-        this.debugTower(`Kule yerleştirme denemesi: ${this.selectedTowerType} kulesi (${x}, ${y}) - Maliyet: $${cost}, Para: $${this.gameState.money}`);
+        const cost = this.towerCosts[this.selectedTowerType] || 0;
+        const starCost = this.towerStarCosts[this.selectedTowerType] || 0;
         
-        if (this.gameState.money < cost) {
-            this.debugError(`Yetersiz para: $${cost} gerekli, $${this.gameState.money} mevcut`);
-            return;
+        // Check if tower requires stars
+        if (starCost > 0) {
+            if (this.stars < starCost) {
+                this.debugError(`Yetersiz ulduz: ${starCost} ulduz gerekli, ${this.stars} mevcut`);
+                return;
+            }
+        } else {
+            // Check money for regular towers
+            if (this.gameState.money < cost) {
+                this.debugError(`Yetersiz para: $${cost} gerekli, $${this.gameState.money} mevcut`);
+                return;
+            }
         }
+        
+        this.debugTower(`Kule yerleştirme denemesi: ${this.selectedTowerType} kulesi (${x}, ${y}) - Maliyet: ${starCost > 0 ? `${starCost}⭐` : `$${cost}`}, ${starCost > 0 ? `Ulduz: ${this.stars}` : `Para: $${this.gameState.money}`}`);
         
         // Snap to center of the cell under cursor
         const cellCol = Math.floor((x - this.gridOffsetX) / this.gridSize);
@@ -1049,6 +1428,7 @@ class TowerDefenseGame {
             // logical grid position retained across resizes
             col: cellCol,
             row: cellRow,
+            cellId: (this.cellIdGrid[cellRow] && this.cellIdGrid[cellRow][cellCol]) ? this.cellIdGrid[cellRow][cellCol] : null,
             // pixel position derived (for immediate drawing)
             x: gridX,
             y: gridY,
@@ -1057,6 +1437,14 @@ class TowerDefenseGame {
             range: this.getTowerRange(this.selectedTowerType),
             damage: this.getTowerDamage(this.selectedTowerType),
             fireRate: this.getTowerFireRate(this.selectedTowerType),
+            health: 100,
+            maxHealth: 100,
+            // new upgrade slots
+            rangeUp: 0,
+            damageUp: 0,
+            rateUp: 0,
+            awakened: false,
+            shielded: false,
             lastShot: 0,
             target: null,
             highlightUntil: Date.now() + 1200
@@ -1074,9 +1462,17 @@ class TowerDefenseGame {
         // Place tower
         this.debugTower(`Kule dizisine ekleniyor...`);
         this.towers.push(tower);
-        this.gameState.money -= cost;
         
-        this.debugTower(`Yerleştirme sonrası - Kuleler: ${this.towers.length}, Para: $${this.gameState.money}`);
+        // Deduct cost (money or stars)
+        if (starCost > 0) {
+            this.stars -= starCost;
+            localStorage.setItem('towerDefenseStars', this.stars.toString());
+            this.debugTower(`Ulduz çıxıldı: ${starCost}, qalan: ${this.stars}`);
+        } else {
+            this.gameState.money -= cost;
+        }
+        
+        this.debugTower(`Yerleştirme sonrası - Kuleler: ${this.towers.length}, Para: $${this.gameState.money}, Ulduz: ${this.stars}`);
         
         // Check if path still exists after placement
         this.debugTower(`Kule yerleştirildikten sonra yol yeniden hesaplanıyor...`);
@@ -1151,15 +1547,8 @@ class TowerDefenseGame {
         ctx.style.position = 'fixed';
         ctx.style.zIndex = '1000';
         
-        // Disable upgrade if not enough money
-        const upgradeCost = this.selectedTower ? this.selectedTower.level * 50 : 0;
-        const btnUp = document.getElementById('ctxUpgrade');
-        if (btnUp) {
-            btnUp.disabled = this.gameState.money < upgradeCost;
-            btnUp.textContent = `Upgrade ($${upgradeCost})`;
-        } else {
-            this.debugLog('ERROR: ctxUpgrade button not found');
-        }
+        // Fill dynamic values and enable/disable
+        // Upgrade button removed
         
         const btnSell = document.getElementById('ctxSell');
         if (btnSell) {
@@ -1167,6 +1556,58 @@ class TowerDefenseGame {
             btnSell.textContent = `Sell ($${sellValue})`;
         } else {
             this.debugLog('ERROR: ctxSell button not found');
+        }
+
+        // Stats buttons
+        const t = this.selectedTower;
+        const limit = t.awakened ? 6 : 3;
+        const rangeBtn = document.getElementById('ctxRange');
+        const dmgBtn = document.getElementById('ctxDamage');
+        const rateBtn = document.getElementById('ctxRate');
+        const rVal = document.getElementById('ctxRangeVal');
+        const dVal = document.getElementById('ctxDamageVal');
+        const fVal = document.getElementById('ctxRateVal');
+        const rUp = document.getElementById('ctxRangeUp');
+        const dUp = document.getElementById('ctxDamageUp');
+        const fUp = document.getElementById('ctxRateUp');
+        const rCostEl = document.getElementById('ctxRangeCost');
+        const dCostEl = document.getElementById('ctxDamageCost');
+        const fCostEl = document.getElementById('ctxRateCost');
+        const rangeCost = 50, damageCost = 50, rateCost = 50;
+        const healBtn = document.getElementById('ctxHeal');
+        const healCost = 20;
+        const shieldBtn = document.getElementById('ctxShield');
+        const shieldCost = 50;
+        if (rVal) rVal.textContent = String(t.range);
+        if (dVal) dVal.textContent = String(t.damage);
+        if (fVal) fVal.textContent = `${Math.round(1000/ t.fireRate * 10)/10}/s`;
+        if (rUp) rUp.textContent = `${t.rangeUp||0}/${limit}`;
+        if (dUp) dUp.textContent = `${t.damageUp||0}/${limit}`;
+        if (fUp) fUp.textContent = `${t.rateUp||0}/${limit}`;
+        if (rCostEl) rCostEl.textContent = String(rangeCost);
+        if (dCostEl) dCostEl.textContent = String(damageCost);
+        if (fCostEl) fCostEl.textContent = String(rateCost);
+        if (rangeBtn) rangeBtn.disabled = (t.rangeUp||0) >= limit || this.gameState.money < rangeCost;
+        if (dmgBtn) dmgBtn.disabled = (t.damageUp||0) >= limit || this.gameState.money < damageCost;
+        if (rateBtn) rateBtn.disabled = (t.rateUp||0) >= limit || this.gameState.money < rateCost;
+        if (healBtn) {
+            const currentHealth = Math.floor(t.health || t.maxHealth || 100);
+            const maxHealth = t.maxHealth || 100;
+            healBtn.textContent = `🩹 ${currentHealth}/${maxHealth} — $${healCost}`;
+            healBtn.disabled = (t.health >= t.maxHealth) || this.gameState.money < healCost;
+        }
+        if (shieldBtn) {
+            const canShield = t.awakened && (t.rangeUp||0) >= 6 && (t.damageUp||0) >= 6 && (t.rateUp||0) >= 6 && !t.shielded && this.diamonds >= shieldCost;
+            shieldBtn.disabled = !canShield;
+            shieldBtn.textContent = t.shielded ? '🛡️ Aktiv' : '🛡️ (💎50)';
+        }
+
+        // Awaken button
+        const awBtn = document.getElementById('ctxAwaken');
+        if (awBtn) {
+            const canAwaken = !t.awakened && (t.rangeUp||0) >= 3 && (t.damageUp||0) >= 3 && (t.rateUp||0) >= 3 && this.diamonds >= 20;
+            awBtn.disabled = !canAwaken;
+            awBtn.textContent = t.awakened ? '🌈 Awakened' : '🌈 Awaken (💎20)';
         }
         
         ctx.style.display = 'flex';
@@ -1187,12 +1628,95 @@ class TowerDefenseGame {
         const upgradeCost = this.selectedTower.level * 50;
         if (this.gameState.money >= upgradeCost) {
             this.selectedTower.level++;
-            this.selectedTower.damage = Math.floor(this.selectedTower.damage * 1.5);
-            this.selectedTower.range = Math.floor(this.selectedTower.range * 1.2);
+            this.selectedTower.damage = Math.floor(this.selectedTower.damage * 1.25);
+            this.selectedTower.range = Math.floor(this.selectedTower.range * 1.1);
             this.gameState.money -= upgradeCost;
             this.updateUI();
             this.updateTowerInfo();
         }
+    }
+
+    upgradeRange() {
+        if (!this.selectedTower) return;
+        const t = this.selectedTower;
+        if (t.rangeUp >= 3 && !t.awakened) return;
+        const cost = 50;
+        if (this.gameState.money < cost) return;
+        t.rangeUp = (t.rangeUp || 0) + 1;
+        t.range = Math.floor(t.range * 1.15);
+        this.gameState.money -= cost;
+        this.updateUI();
+        // refresh context menu in place
+        this.showTowerContextAt(t);
+    }
+
+    upgradeDamage() {
+        if (!this.selectedTower) return;
+        const t = this.selectedTower;
+        if (t.damageUp >= 3 && !t.awakened) return;
+        const cost = 50;
+        if (this.gameState.money < cost) return;
+        t.damageUp = (t.damageUp || 0) + 1;
+        t.damage = Math.floor(t.damage * 1.2);
+        this.gameState.money -= cost;
+        this.updateUI();
+        this.showTowerContextAt(t);
+    }
+
+    upgradeFireRate() {
+        if (!this.selectedTower) return;
+        const t = this.selectedTower;
+        if (t.rateUp >= 3 && !t.awakened) return;
+        const cost = 50;
+        if (this.gameState.money < cost) return;
+        t.rateUp = (t.rateUp || 0) + 1;
+        t.fireRate = Math.max(80, Math.floor(t.fireRate * 0.85));
+        this.gameState.money -= cost;
+        this.updateUI();
+        this.showTowerContextAt(t);
+    }
+
+    awakenTower() {
+        if (!this.selectedTower) return;
+        const t = this.selectedTower;
+        if (t.awakened) return;
+        const diamondCost = 20;
+        if (this.diamonds < diamondCost) return;
+        this.diamonds -= diamondCost;
+        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        t.awakened = true;
+        // immediate modest boost
+        t.damage = Math.floor(t.damage * 1.2);
+        t.fireRate = Math.max(60, Math.floor(t.fireRate * 0.85));
+        t.range = Math.floor(t.range * 1.1);
+        this.updateUI();
+        this.showTowerContextAt(t);
+    }
+
+    healTower() {
+        if (!this.selectedTower) return;
+        const cost = 20;
+        if (this.gameState.money < cost) return;
+        const t = this.selectedTower;
+        t.health = t.maxHealth;
+        this.gameState.money -= cost;
+        this.updateUI();
+        this.showTowerContextAt(t);
+    }
+
+    shieldTower() {
+        if (!this.selectedTower) return;
+        const t = this.selectedTower;
+        if (!t.awakened) return;
+        const eligible = (t.rangeUp||0) >= 6 && (t.damageUp||0) >= 6 && (t.rateUp||0) >= 6;
+        if (!eligible || t.shielded) return;
+        const diamondCost = 50;
+        if (this.diamonds < diamondCost) return;
+        this.diamonds -= diamondCost;
+        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        t.shielded = true;
+        this.updateUI();
+        this.showTowerContextAt(t);
     }
     
     sellTower() {
@@ -1255,18 +1779,34 @@ class TowerDefenseGame {
     }
     
     getTowerRange(type) {
-        const ranges = { basic: 80, rapid: 60, heavy: 100 };
-        const base = ranges[type] || 80;
-        return Math.round(base * this.scale);
+        // Fixed starting radius: R=117px at gridSize≈76 (≈1.54×gridSize)
+        const factor = 1.54;
+        return Math.round(this.gridSize * factor);
     }
     
     getTowerDamage(type) {
-        const damages = { basic: 20, rapid: 10, heavy: 50 };
+        const damages = { 
+            basic: 20, 
+            rapid: 10, 
+            heavy: 50,
+            ice: 15,
+            flame: 25,
+            laser: 30,
+            plasma: 60
+        };
         return damages[type] || 20;
     }
     
     getTowerFireRate(type) {
-        const rates = { basic: 1000, rapid: 300, heavy: 2000 };
+        const rates = { 
+            basic: 1000, 
+            rapid: 300, 
+            heavy: 2000,
+            ice: 800,
+            flame: 1000,
+            laser: 500,
+            plasma: 1500
+        };
         return rates[type] || 1000;
     }
     
@@ -1277,6 +1817,13 @@ class TowerDefenseGame {
         this.currentWaveEnemies = 0;
         this.lastEnemySpawn = Date.now();
         
+        // Show wave message with enemy count
+        const totalEnemies = this.waveConfig.enemiesPerWave;
+        this.waveMessage = {
+            text: `Wave ${this.gameState.wave}: ${totalEnemies} düşmən gəlir!`,
+            until: Date.now() + 2500 // Show for 2.5 seconds
+        };
+        
         document.getElementById('startWave').disabled = true;
     }
     
@@ -1284,21 +1831,40 @@ class TowerDefenseGame {
         this.gameState.isPaused = !this.gameState.isPaused;
         const button = document.getElementById('pauseGame');
         button.textContent = this.gameState.isPaused ? 'Resume' : 'Pause';
+        // Update UI to enable/disable grid expansion buttons
+        this.updateUI();
     }
     
     spawnEnemy() {
-        const enemyTypes = ['basic', 'fast', 'tank'];
-        const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        // Boss (X) spawn chance: every 10 waves or 5% chance otherwise
+        const shouldSpawnBoss = this.gameState.wave % 10 === 0 && this.currentWaveEnemies === 0;
+        const bossChance = shouldSpawnBoss ? 1.0 : (Math.random() < 0.05 ? true : false);
+        
+        let type;
+        if (bossChance) {
+            type = 'boss'; // X boss enemy
+        } else {
+            const enemyTypes = ['basic', 'fast', 'tank'];
+            type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        }
         
         const enemy = {
             x: (this.path[0] ? this.path[0].x : this.startCell.col * this.gridSize + this.gridSize / 2),
             y: (this.path[0] ? this.path[0].y : this.startCell.row * this.gridSize + this.gridSize / 2),
             type: type,
+            level: this.currentLevel,
             health: this.getEnemyHealth(type),
             maxHealth: this.getEnemyHealth(type),
             speed: this.getEnemySpeed(type),
+            baseSpeed: this.getEnemySpeed(type), // Store original speed for freeze effect
             pathIndex: 0,
-            reward: this.getEnemyReward(type)
+            reward: this.getEnemyReward(type),
+            frozen: false,
+            frozenUntil: 0,
+            burning: false,
+            burnDamage: 0,
+            burnUntil: 0,
+            lastBurnTick: 0
         };
         // Initial facing: set direction based on first path segment so icon looks forward immediately
         if (this.path.length > 1) {
@@ -1314,20 +1880,20 @@ class TowerDefenseGame {
     
     getEnemyHealth(type) {
         // Düşmən canları level-ə görə artırılır
-        const baseHealths = { basic: 150, fast: 100, tank: 300 };
+        const baseHealths = { basic: 150, fast: 100, tank: 300, boss: 800 };
         const baseHealth = baseHealths[type] || 150;
         
         // Hər level üçün 20% artır
         const levelMultiplier = 1 + (this.currentLevel - 1) * 0.2;
         const finalHealth = Math.floor(baseHealth * levelMultiplier);
         
-        const enemyNames = { basic: 'Zombie', fast: 'Eagle', tank: 'Dino' };
+        const enemyNames = { basic: 'Zombie', fast: 'Eagle', tank: 'Dino', boss: 'Boss X' };
         this.debugLog(`Level ${this.currentLevel}: ${enemyNames[type]} düşmən canı ${baseHealth} -> ${finalHealth} (${levelMultiplier.toFixed(1)}x)`);
         return finalHealth;
     }
     
     getEnemySpeed(type) {
-        const baseSpeeds = { basic: 1, fast: 2, tank: 0.5 };
+        const baseSpeeds = { basic: 1, fast: 2, tank: 0.5, boss: 0.8 };
         const baseSpeed = baseSpeeds[type] || 1;
         
         // Hər level üçün 10% sürət artır
@@ -1338,14 +1904,21 @@ class TowerDefenseGame {
         return finalSpeed * Math.max(0.75, Math.min(2, this.scale));
     }
 
+    getEnemyDamage(type) {
+        const dmg = { basic: 2, fast: 1, tank: 3, boss: 5 };
+        return dmg[type] || 2;
+    }
+
     getEnemyRadius(type) {
-        // Smaller enemy visuals to improve spacing
-        const base = type === 'fast' ? 12 : 14; // reduced from 16/19
-        return Math.max(8, Math.round(base * this.scale));
+        // Enemy size scales with cell size and is clamped to stay inside the tile
+        const base = type === 'fast' ? 12 : type === 'boss' ? 16 : 14;
+        const scaled = Math.max(8, Math.round(base * this.scale));
+        const maxByCell = Math.floor(this.gridSize * 0.45);
+        return Math.min(scaled, maxByCell);
     }
     
     getEnemyReward(type) {
-        const baseRewards = { basic: 10, fast: 15, tank: 25 };
+        const baseRewards = { basic: 10, fast: 15, tank: 25, boss: 100 };
         const baseReward = baseRewards[type] || 10;
         
         // Hər level üçün 15% mükafat artır
@@ -1359,31 +1932,171 @@ class TowerDefenseGame {
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i];
             if (this.path.length < 2) continue;
-            // Move enemy along dynamic path
+            
+            // Initialize attack cooldown if not set
+            if (!enemy.nextAttackAt) enemy.nextAttackAt = 0;
+            
+            // Handle freeze effect
+            if (enemy.frozen && Date.now() >= enemy.frozenUntil) {
+                enemy.frozen = false;
+                enemy.speed = enemy.baseSpeed; // Restore original speed
+            }
+            
+            // Handle burn effect
+            if (enemy.burning && Date.now() >= enemy.burnUntil) {
+                enemy.burning = false;
+                enemy.burnDamage = 0;
+            } else if (enemy.burning && Date.now() - enemy.lastBurnTick >= 500) {
+                // Apply burn damage every 0.5 seconds
+                enemy.health -= enemy.burnDamage;
+                enemy.lastBurnTick = Date.now();
+                if (enemy.health <= 0) {
+                    // Enemy died from burn, handle death
+                    this.gameState.money += enemy.reward;
+                    this.gameState.score += enemy.reward * 2;
+                    const index = this.enemies.indexOf(enemy);
+                    if (index !== -1) {
+                        this.enemies.splice(index, 1);
+                        this.updateUI();
+                    }
+                    continue;
+                }
+            }
+            
+            // Check for nearby towers to attack (priority over movement)
+            const attackRange = this.gridSize * 2.5; // Increased range so enemies can attack from further
+            let nearestTower = null;
+            let nearestDistance = Infinity;
+            
+            for (const t of this.towers) {
+                const dtx = t.x - enemy.x;
+                const dty = t.y - enemy.y;
+                const d2 = Math.hypot(dtx, dty);
+                if (d2 < nearestDistance && d2 <= attackRange) {
+                    nearestDistance = d2;
+                    nearestTower = t;
+                }
+            }
+            
+            // If enemy is in range and can attack, attack the tower (while moving)
+            if (nearestTower && Date.now() >= enemy.nextAttackAt) {
+                if (nearestTower.shielded) {
+                    enemy.nextAttackAt = Date.now() + 1000; // shield absorbs attack
+                } else {
+                const damage = this.getEnemyDamage(enemy.type);
+                const oldHealth = nearestTower.health || nearestTower.maxHealth || 100;
+                nearestTower.health = Math.max(0, oldHealth - damage);
+                
+                // Create enemy bullet (visual effect)
+                const enemyBullet = {
+                    x: enemy.x,
+                    y: enemy.y,
+                    targetX: nearestTower.x,
+                    targetY: nearestTower.y,
+                    damage: damage,
+                    speed: this.gridSize * 0.15,
+                    bornAt: Date.now(),
+                    ttlMs: 2000,
+                    enemyType: enemy.type
+                };
+                this.enemyBullets.push(enemyBullet);
+                
+                const enemyNames = { basic: 'Zombie', fast: 'Qartal', tank: 'Dino', boss: 'Boss X' };
+                console.log(`[⚔️ HÜCUM] ${enemyNames[enemy.type]} L${enemy.level} qülləyə ${damage} zərər verdi! Qüllə canı: ${oldHealth}/${nearestTower.maxHealth || 100} -> ${nearestTower.health}/${nearestTower.maxHealth || 100}`);
+                this.debugLog(`⚔️ ${enemyNames[enemy.type]} L${enemy.level} qülləyə ${damage} zərər verdi! Qüllə canı: ${oldHealth} -> ${nearestTower.health}`);
+                
+                if (nearestTower.health <= 0) {
+                    const idx = this.towers.indexOf(nearestTower);
+                    if (idx !== -1) {
+                        this.towers.splice(idx, 1);
+                        console.log(`[💥 MƏHV] Qüllə məhv edildi!`);
+                        this.debugLog(`💥 Qüllə məhv edildi!`);
+                        this.recomputePath();
+                    }
+                }
+                }
+                enemy.nextAttackAt = Date.now() + 1000; // 1s cooldown between attacks
+                // Continue moving while attacking (don't stop)
+            }
+            
+            // Check for plasma barriers (plasma towers create barriers on path)
+            for (const tower of this.towers) {
+                if (tower.type === 'plasma') {
+                    // Check if enemy is near the path segment where plasma tower's barrier would be
+                    // Barrier affects enemies within tower range
+                    const distToTower = Math.sqrt((tower.x - enemy.x) ** 2 + (tower.y - enemy.y) ** 2);
+                    if (distToTower <= tower.range) {
+                        // Apply barrier damage every 0.5 seconds
+                        if (!enemy.lastBarrierTick) enemy.lastBarrierTick = 0;
+                        if (Date.now() - enemy.lastBarrierTick >= 500) {
+                            const barrierDamage = tower.damage * 0.2; // 20% of tower damage per tick
+                            enemy.health -= barrierDamage;
+                            enemy.lastBarrierTick = Date.now();
+                            if (enemy.health <= 0) {
+                                // Enemy died from barrier
+                                this.gameState.money += enemy.reward;
+                                this.gameState.score += enemy.reward * 2;
+                                const index = this.enemies.indexOf(enemy);
+                                if (index !== -1) {
+                                    this.enemies.splice(index, 1);
+                                    this.updateUI();
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Move enemy along dynamic path (enemies attack while moving)
             enemy.pathIndex = Math.min(Math.max(enemy.pathIndex, 0), this.path.length - 2);
             const target = this.path[enemy.pathIndex + 1];
             const dx = target.x - enemy.x;
             const dy = target.y - enemy.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance < enemy.speed) {
+            // Apply gameSpeed to movement and checkpoint detection
+            const moveSpeed = enemy.speed * this.gameSpeed;
+            if (distance < moveSpeed) {
                 enemy.pathIndex++;
                 if (enemy.pathIndex >= this.path.length - 1) {
                     // Enemy reached the castle - damage castle
                     const damage = 10;
                     this.gameState.health -= damage;
-                    const enemyNames = { basic: 'Zombie', fast: 'Eagle', tank: 'Dino' };
+                    const enemyNames = { basic: 'Zombie', fast: 'Qartal', tank: 'Dino', boss: 'Boss X' };
                     this.debugLog(`💀 ${enemyNames[enemy.type]} düşmən qalaya çatdı! Can azaldı: ${this.gameState.health + damage} -> ${this.gameState.health}`);
                     this.enemies.splice(i, 1);
                     continue;
                 }
             } else {
-                // Simple movement without animations
-                const moveSpeed = enemy.speed * this.gameSpeed;
+                // Simple movement without animations - gameSpeed already applied to moveSpeed
                 enemy.x += (dx / distance) * moveSpeed;
                 enemy.y += (dy / distance) * moveSpeed;
                 
                 // Store direction for drawing
                 enemy.directionX = dx; // Store dx for horizontal flipping
+            }
+        }
+    }
+    
+    updateEnemyBullets() {
+        for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
+            const bullet = this.enemyBullets[i];
+            // TTL safeguard
+            if (Date.now() - bullet.bornAt > bullet.ttlMs) {
+                this.enemyBullets.splice(i, 1);
+                continue;
+            }
+            // Move toward target tower position
+            const dx = bullet.targetX - bullet.x;
+            const dy = bullet.targetY - bullet.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const moveSpeed = bullet.speed * this.gameSpeed;
+            if (distance <= moveSpeed) {
+                // Bullet reached target (damage already applied, just remove visual)
+                this.enemyBullets.splice(i, 1);
+            } else if (distance > 0) {
+                bullet.x += (dx / distance) * moveSpeed;
+                bullet.y += (dy / distance) * moveSpeed;
             }
         }
     }
@@ -1394,7 +2107,8 @@ class TowerDefenseGame {
             tower.target = this.findTarget(tower);
             
             // Shoot at target
-            if (tower.target && Date.now() - tower.lastShot > tower.fireRate) {
+            const effectiveFireRate = tower.fireRate / Math.max(0.001, this.gameSpeed);
+            if (tower.target && Date.now() - tower.lastShot > effectiveFireRate) {
                 this.shootBullet(tower);
                 tower.lastShot = Date.now();
             }
@@ -1425,6 +2139,7 @@ class TowerDefenseGame {
             damage: tower.damage,
             speed: bulletSpeed,
             target: tower.target,
+            towerType: tower.type, // Store tower type for special effects
             bornAt: Date.now(),
             ttlMs: 4000
         };
@@ -1448,27 +2163,102 @@ class TowerDefenseGame {
             const dx = bullet.target.x - bullet.x;
             const dy = bullet.target.y - bullet.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance <= bullet.speed) {
-                this.hitEnemy(bullet.target, bullet.damage);
+            const moveSpeed = bullet.speed * this.gameSpeed;
+            if (distance <= moveSpeed) {
+                this.hitEnemy(bullet.target, bullet.damage, bullet.towerType);
                 this.bullets.splice(i, 1);
             } else if (distance > 0) {
-                bullet.x += (dx / distance) * bullet.speed;
-                bullet.y += (dy / distance) * bullet.speed;
+                bullet.x += (dx / distance) * moveSpeed;
+                bullet.y += (dy / distance) * moveSpeed;
             }
         }
     }
     
-    hitEnemy(enemy, damage) {
+    hitEnemy(enemy, damage, towerType = null) {
         const oldHealth = enemy.health;
         enemy.health -= damage;
         
-        const enemyNames = { basic: 'Zombie', fast: 'Eagle', tank: 'Dino' };
+        // Apply special effects based on tower type
+        if (towerType === 'ice') {
+            // Freeze enemy: slow down by 50% for 3 seconds
+            // If already frozen, reset timer to 3 seconds again
+            if (enemy.frozen) {
+                // Reset freeze timer - extends duration
+                enemy.frozenUntil = Date.now() + 3000;
+                this.debugLog(`❄️ ${enemy.type} düşmən donma müddəti yeniləndi!`);
+            } else {
+                // New freeze
+                enemy.frozen = true;
+                enemy.frozenUntil = Date.now() + 3000;
+                enemy.speed = enemy.baseSpeed * 0.5; // Reduce speed by 50%
+                this.debugLog(`❄️ ${enemy.type} düşmən donduruldu!`);
+            }
+            
+            // Create ice explosion effect (no big ring, only shards + small flash)
+            this.explosions.push({
+                x: enemy.x,
+                y: enemy.y,
+                type: 'ice',
+                startTime: Date.now(),
+                duration: 250 // shorter, quick one-time animation
+            });
+        } else if (towerType === 'flame') {
+            // Burn enemy: take damage over time for 5 seconds
+            // If already burning, reset timer to 5 seconds again
+            if (enemy.burning) {
+                // Reset burn timer - extends duration
+                enemy.burnUntil = Date.now() + 5000;
+                enemy.lastBurnTick = Date.now(); // Reset burn tick timer
+                this.debugLog(`🔥 ${enemy.type} düşmən yanma müddəti yeniləndi!`);
+            } else {
+                // New burn
+                enemy.burning = true;
+                enemy.burnDamage = damage * 0.3; // 30% of initial damage per tick
+                enemy.burnUntil = Date.now() + 5000;
+                enemy.lastBurnTick = Date.now();
+                this.debugLog(`🔥 ${enemy.type} düşmən yandırıldı!`);
+            }
+            
+            // Update burn damage if new damage is higher (keep strongest burn)
+            const newBurnDamage = damage * 0.3;
+            if (newBurnDamage > enemy.burnDamage) {
+                enemy.burnDamage = newBurnDamage;
+            }
+            
+            // Create fire explosion effect
+            this.explosions.push({
+                x: enemy.x,
+                y: enemy.y,
+                type: 'fire',
+                startTime: Date.now(),
+                duration: 500 // 0.5 seconds
+            });
+        } else {
+            // Normal hit explosion
+            this.explosions.push({
+                x: enemy.x,
+                y: enemy.y,
+                type: 'normal',
+                startTime: Date.now(),
+                duration: 200 // 0.2 seconds
+            });
+        }
+        
+        const enemyNames = { basic: 'Zombie', fast: 'Eagle', tank: 'Dino', boss: 'Boss X' };
         this.debugLog(`💥 ${enemyNames[enemy.type]} düşmənə ${damage} zərər! ${oldHealth} -> ${enemy.health}`);
         
         if (enemy.health <= 0) {
             // Enemy destroyed
             this.gameState.money += enemy.reward;
             this.gameState.score += enemy.reward * 2;
+            
+            // Give star for every 10th wave boss
+            if (enemy.type === 'boss' && this.gameState.wave % 10 === 0) {
+                this.stars++;
+                localStorage.setItem('towerDefenseStars', this.stars.toString());
+                this.debugLog(`⭐ Ulduz qazandınız! Cəmi: ${this.stars}`);
+                console.log(`[⭐ ULDUZ] Boss məğlub edildi! Ulduz: ${this.stars}`);
+            }
             
             // Chance to get diamond
             const diamondChance = 0.1; // 10% chance
@@ -1525,6 +2315,27 @@ class TowerDefenseGame {
             this.ctx.stroke();
         }
 
+        // Expansion reveal animation overlay (new cells fade-in)
+        if (this.expandAnim) {
+            const { cells, startedAt, duration } = this.expandAnim;
+            const t = (Date.now() - startedAt) / duration;
+            if (t >= 1) {
+                this.expandAnim = null;
+            } else {
+                const revealCount = Math.ceil(cells.length * t);
+                this.ctx.save();
+                this.ctx.globalAlpha = 0.25 + 0.45 * (1 - t);
+                this.ctx.fillStyle = '#4a90e2';
+                for (let i = 0; i < revealCount; i++) {
+                    const c = cells[i];
+                    const x = this.gridOffsetX + c.col * this.gridSize;
+                    const y = this.gridOffsetY + c.row * this.gridSize;
+                    this.ctx.fillRect(x, y, this.gridSize, this.gridSize);
+                }
+                this.ctx.restore();
+            }
+        }
+
         // Board border
         this.ctx.strokeStyle = 'rgba(62,166,255,0.35)';
         this.ctx.lineWidth = 2;
@@ -1533,6 +2344,10 @@ class TowerDefenseGame {
     
     drawPath() {
         if (this.path.length === 0) return;
+        // Ensure no neon/glow carries over to the path drawing
+        this.ctx.save();
+        this.ctx.shadowBlur = 0;
+        this.ctx.shadowColor = 'transparent';
         // Scale path width with grid size - Daha nazik yol
         const pathOuter = Math.max(1, Math.round(this.gridSize * 0.8)); // Daha nazik
         const pathInner = Math.max(1, Math.round(this.gridSize * 0.6)); // Daha nazik
@@ -1552,6 +2367,7 @@ class TowerDefenseGame {
         this.ctx.moveTo(this.path[0].x, this.path[0].y);
         for (let i = 1; i < this.path.length; i++) this.ctx.lineTo(this.path[i].x, this.path[i].y);
         this.ctx.stroke();
+        this.ctx.restore();
     }
     
     drawCastle() {
@@ -1652,12 +2468,14 @@ class TowerDefenseGame {
         this.ctx.fillStyle = healthPercent > 0.6 ? '#0f0' : healthPercent > 0.3 ? '#ff0' : '#f00';
         this.ctx.fillRect(x + 1, y + 1, (barWidth - 2) * healthPercent, barHeight - 2);
         
-        // Health text
+        // Health text (round to integer to avoid floating point errors)
         this.ctx.fillStyle = '#fff';
         this.ctx.font = '8px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-        this.ctx.fillText(`${enemy.health}/${enemy.maxHealth}`, enemy.x, y - 6);
+        const currentHealth2 = Math.max(0, Math.floor(enemy.health));
+        const maxHealth2 = Math.floor(enemy.maxHealth);
+        this.ctx.fillText(`${currentHealth2}/${maxHealth2}`, enemy.x, y - 6);
         
         this.ctx.restore();
     }
@@ -1696,19 +2514,76 @@ class TowerDefenseGame {
             // Neon base + weapon barrel
             // Back to subtle neon base + barrel (no 3D) for the actual game
             const baseR = Math.max(6, Math.round(this.gridSize * 0.38));
-            const neonStroke = tower.type === 'basic' ? '#00e5ff' : tower.type === 'rapid' ? '#7cff00' : '#ff6bff';
-            // Hollow neon circle base
-            this.ctx.beginPath();
-            this.ctx.arc(tower.x, tower.y, baseR, 0, Math.PI * 2);
-            this.ctx.shadowColor = neonStroke;
-            this.ctx.shadowBlur = Math.max(10, Math.round(this.gridSize * 0.35));
-            this.ctx.lineWidth = Math.max(2, Math.round(this.gridSize * 0.12));
-            this.ctx.strokeStyle = neonStroke;
-            this.ctx.stroke();
+            // Ring as health bar: part of ring disappears as health decreases
+            const hpRatio = Math.max(0, Math.min(1, (tower.health ?? tower.maxHealth) / (tower.maxHealth || 1)));
+            let neonStroke;
+            if (tower.awakened) {
+                // Awakened towers: base color
+                neonStroke = tower.shielded ? '#66ccff' : '#ff66ff';
+            } else {
+                // Normal towers: color based on type
+                const colors = {
+                    basic: 'hsl(120, 90%, 60%)',   // Green
+                    rapid: 'hsl(200, 90%, 60%)',   // Blue
+                    heavy: 'hsl(0, 90%, 60%)',     // Red
+                    ice: '#00CED1',                 // Cyan
+                    flame: '#FF4500',               // Orange red
+                    laser: '#FF1493',               // Deep pink
+                    plasma: '#9370DB'               // Medium purple
+                };
+                const baseColor = colors[tower.type] || 'hsl(120, 90%, 60%)';
+                
+                // Apply health-based darkening (only for basic/rapid/heavy)
+                if (tower.type === 'basic' || tower.type === 'rapid' || tower.type === 'heavy') {
+                    const hue = Math.floor(120 * hpRatio); // 120=green to 0=red
+                    neonStroke = `hsl(${hue}, 90%, 60%)`;
+                } else {
+                    // For star towers, just use base color (no health-based color change)
+                    neonStroke = baseColor;
+                }
+            }
+            
+            // Draw ring as health bar - partial arc based on health
+            this.ctx.save(); // Save context state
+            const lineWidth = Math.max(2, Math.round(this.gridSize * 0.12));
+            const startAngle = -Math.PI / 2; // Start from top (12 o'clock)
+            const endAngle = startAngle + (Math.PI * 2 * hpRatio); // Draw arc based on health percentage
+            
+            // Draw the visible (healthy) part of the ring
+            if (hpRatio > 0) {
+                this.ctx.beginPath();
+                this.ctx.arc(tower.x, tower.y, baseR, startAngle, endAngle);
+                this.ctx.shadowColor = neonStroke;
+                this.ctx.shadowBlur = Math.max(10, Math.round(this.gridSize * 0.35));
+                this.ctx.lineWidth = lineWidth;
+                this.ctx.strokeStyle = neonStroke;
+                this.ctx.stroke();
+            }
+            
+            // Draw the missing (damaged) part of the ring in dark color
+            if (hpRatio < 1) {
+                this.ctx.beginPath();
+                this.ctx.arc(tower.x, tower.y, baseR, endAngle, startAngle + Math.PI * 2);
+                this.ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+                this.ctx.shadowBlur = 0;
+                this.ctx.lineWidth = lineWidth;
+                this.ctx.strokeStyle = 'rgba(50, 50, 50, 0.5)'; // Dark gray for missing part
+                this.ctx.stroke();
+            }
+            
+            this.ctx.restore(); // Restore context (clears shadowBlur)
 
             // Barrel
             let angle = 0; if (tower.target) angle = Math.atan2(tower.target.y - tower.y, tower.target.x - tower.x);
-            const barrelLen = Math.max(8, Math.round(this.gridSize * (tower.type === 'heavy' ? 0.6 : tower.type === 'rapid' ? 0.45 : 0.5)));
+            const barrelLengths = {
+                heavy: 0.6,
+                rapid: 0.45,
+                ice: 0.5,
+                flame: 0.55,
+                laser: 0.55,
+                plasma: 0.65
+            };
+            const barrelLen = Math.max(8, Math.round(this.gridSize * (barrelLengths[tower.type] || 0.5)));
             const barrelW = Math.max(3, Math.round(this.gridSize * 0.12));
             this.ctx.save();
             this.ctx.translate(tower.x, tower.y);
@@ -1731,6 +2606,8 @@ class TowerDefenseGame {
                 this.ctx.font = '6px Arial';
                 this.ctx.fillText(`(${col},${row})`, tower.x, tower.y + 12);
             }
+            
+            // Plasma barrier effect removed - only shows animation when firing/hitting
         }
 
         // Draw dragging ghost (yalnız yeni kulelər)
@@ -1777,6 +2654,22 @@ class TowerDefenseGame {
             // Draw enemy with icon
             this.drawEnemyIcon(enemy, radius);
             
+            // Only keep burning tint; remove frozen tint so no persistent halo remains
+            if (enemy.burning) {
+                this.ctx.save();
+                this.ctx.globalCompositeOperation = 'multiply';
+                this.ctx.fillStyle = 'rgba(255, 69, 0, 0.4)';
+                this.ctx.fillRect(enemy.x - radius, enemy.y - radius, radius * 2, radius * 2);
+                this.ctx.restore();
+            }
+            
+            // Draw enemy level inside icon
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.font = `${Math.max(8, Math.round(this.gridSize * 0.28))}px Arial`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(`L${enemy.level || this.currentLevel}`, enemy.x, enemy.y);
+            
             // Health bar
             const barWidth = Math.max(20, Math.round(this.gridSize * 0.8));
             const barHeight = Math.max(3, Math.round(this.gridSize * 0.12));
@@ -1795,12 +2688,14 @@ class TowerDefenseGame {
             this.ctx.fillStyle = healthPercent > 0.6 ? '#4CAF50' : healthPercent > 0.3 ? '#FF9800' : '#F44336';
             this.ctx.fillRect(enemy.x - barWidth/2 + 1, enemy.y - (radius + 10) + 1, (barWidth - 2) * healthPercent, barHeight - 2);
             
-            // Health text
+            // Health text (round to integer to avoid floating point errors)
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '8px Arial';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(`${enemy.health}/${enemy.maxHealth}`, enemy.x, enemy.y - (radius + 15));
+            const currentHealth = Math.max(0, Math.floor(enemy.health));
+            const maxHealth = Math.floor(enemy.maxHealth);
+            this.ctx.fillText(`${currentHealth}/${maxHealth}`, enemy.x, enemy.y - (radius + 15));
         }
     }
     
@@ -1842,6 +2737,21 @@ class TowerDefenseGame {
             this.ctx.lineTo(-s*0.5, -s*0.6);
             this.ctx.lineTo(-s*0.5,  s*0.6);
             this.ctx.closePath();
+            this.ctx.stroke();
+        } else if (enemy.type === 'boss') {
+            // Static neon X boss enemy (no color animation)
+            const s = radius * 1.2; // smaller size
+            this.ctx.shadowColor = '#ff00ff';
+            this.ctx.shadowBlur = Math.max(8, Math.round(this.gridSize * 0.25));
+            this.ctx.lineWidth = Math.max(3, Math.round(this.gridSize * 0.12));
+            this.ctx.strokeStyle = '#ff00ff';
+            
+            // Draw only the X
+            this.ctx.beginPath();
+            this.ctx.moveTo(-s/2, -s/2);
+            this.ctx.lineTo(s/2, s/2);
+            this.ctx.moveTo(s/2, -s/2);
+            this.ctx.lineTo(-s/2, s/2);
             this.ctx.stroke();
         } else { // tank -> hexagon/diamond
             neonStroke('#ff6bff');
@@ -2285,19 +3195,320 @@ class TowerDefenseGame {
     }
     
     drawBullets() {
-        const r = Math.max(2, Math.round(this.gridSize * 0.1));
+        const baseR = Math.max(2, Math.round(this.gridSize * 0.1));
         for (const bullet of this.bullets) {
-            this.ctx.fillStyle = '#ffff00';
+            const towerType = bullet.towerType || 'basic';
+            
+            if (towerType === 'ice') {
+                // Real ice bullet effect - icy particles and blue glow
+                this.ctx.save();
+                
+                // Outer blue glow
+                const glowPhase = (Date.now() % 800) / 800;
+                const glowSize = baseR * 2 + Math.sin(glowPhase * Math.PI * 2) * baseR * 0.3;
+                const gradient = this.ctx.createRadialGradient(bullet.x, bullet.y, 0, bullet.x, bullet.y, glowSize);
+                gradient.addColorStop(0, 'rgba(135, 206, 250, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(0, 206, 209, 0.4)');
+                gradient.addColorStop(1, 'rgba(0, 191, 255, 0)');
+                this.ctx.fillStyle = gradient;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, glowSize, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Ice crystal particles (sparkles)
+                const time = Date.now();
+                for (let i = 0; i < 6; i++) {
+                    const angle = (time * 0.002 + i * Math.PI / 3) % (Math.PI * 2);
+                    const dist = baseR * 0.8;
+                    const sparkX = bullet.x + Math.cos(angle) * dist;
+                    const sparkY = bullet.y + Math.sin(angle) * dist;
+                    const sparkSize = baseR * 0.3 + Math.sin(time * 0.01 + i) * baseR * 0.1;
+                    
+                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    this.ctx.beginPath();
+                    this.ctx.arc(sparkX, sparkY, sparkSize, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+                
+                // Central ice core
+                const coreGradient = this.ctx.createRadialGradient(bullet.x, bullet.y, 0, bullet.x, bullet.y, baseR);
+                coreGradient.addColorStop(0, '#00FFFF');
+                coreGradient.addColorStop(0.7, '#00CED1');
+                coreGradient.addColorStop(1, '#87CEEB');
+                this.ctx.fillStyle = coreGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, baseR * 1.2, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Ice shard effect
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                this.ctx.lineWidth = 1;
+                for (let i = 0; i < 4; i++) {
+                    const shardAngle = (time * 0.003 + i * Math.PI / 2) % (Math.PI * 2);
+                    const shardLen = baseR * 1.5;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(bullet.x, bullet.y);
+                    this.ctx.lineTo(
+                        bullet.x + Math.cos(shardAngle) * shardLen,
+                        bullet.y + Math.sin(shardAngle) * shardLen
+                    );
+                    this.ctx.stroke();
+                }
+                
+                this.ctx.restore();
+            } else if (towerType === 'flame') {
+                // Real fire bullet effect - flames and orange/red glow
+                this.ctx.save();
+                
+                // Fire glow - pulsing orange/red
+                const firePhase = (Date.now() % 500) / 500;
+                const fireSize = baseR * 2.5 + Math.sin(firePhase * Math.PI * 2) * baseR * 0.5;
+                const fireGradient = this.ctx.createRadialGradient(bullet.x, bullet.y, 0, bullet.x, bullet.y, fireSize);
+                fireGradient.addColorStop(0, 'rgba(255, 100, 0, 1)');
+                fireGradient.addColorStop(0.3, 'rgba(255, 69, 0, 0.8)');
+                fireGradient.addColorStop(0.6, 'rgba(255, 140, 0, 0.4)');
+                fireGradient.addColorStop(1, 'rgba(255, 69, 0, 0)');
+                this.ctx.fillStyle = fireGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, fireSize, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Fire particles - animated flames
+                const time = Date.now();
+                for (let i = 0; i < 8; i++) {
+                    const angle = (time * 0.005 + i * Math.PI / 4) % (Math.PI * 2);
+                    const dist = baseR * 0.6 + Math.sin(time * 0.01 + i) * baseR * 0.4;
+                    const flameX = bullet.x + Math.cos(angle) * dist;
+                    const flameY = bullet.y + Math.sin(angle) * dist;
+                    const flameSize = baseR * 0.4 + Math.sin(time * 0.015 + i) * baseR * 0.2;
+                    
+                    // Flame gradient
+                    const flameGrad = this.ctx.createRadialGradient(flameX, flameY, 0, flameX, flameY, flameSize);
+                    flameGrad.addColorStop(0, `rgba(255, ${200 + Math.sin(time * 0.02 + i) * 55}, 0, 1)`);
+                    flameGrad.addColorStop(0.5, `rgba(255, 69, 0, 0.8)`);
+                    flameGrad.addColorStop(1, 'rgba(255, 140, 0, 0)');
+                    this.ctx.fillStyle = flameGrad;
+                    this.ctx.beginPath();
+                    this.ctx.arc(flameX, flameY, flameSize, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+                
+                // Central fire core - bright yellow/orange
+                const coreFireGradient = this.ctx.createRadialGradient(bullet.x, bullet.y, 0, bullet.x, bullet.y, baseR * 1.3);
+                coreFireGradient.addColorStop(0, '#FFFF00');
+                coreFireGradient.addColorStop(0.4, '#FF8C00');
+                coreFireGradient.addColorStop(0.8, '#FF4500');
+                coreFireGradient.addColorStop(1, '#FF6347');
+                this.ctx.fillStyle = coreFireGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, baseR * 1.3, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Fire trail effect
+                const trailLen = baseR * 2;
+                const trailAngle = Math.atan2(
+                    (bullet.target?.y || bullet.y) - bullet.y,
+                    (bullet.target?.x || bullet.x) - bullet.x
+                ) + Math.PI;
+                const trailGradient = this.ctx.createLinearGradient(
+                    bullet.x, bullet.y,
+                    bullet.x + Math.cos(trailAngle) * trailLen,
+                    bullet.y + Math.sin(trailAngle) * trailLen
+                );
+                trailGradient.addColorStop(0, 'rgba(255, 69, 0, 0)');
+                trailGradient.addColorStop(0.5, 'rgba(255, 140, 0, 0.3)');
+                trailGradient.addColorStop(1, 'rgba(255, 100, 0, 0.6)');
+                this.ctx.fillStyle = trailGradient;
+                this.ctx.beginPath();
+                this.ctx.moveTo(bullet.x, bullet.y);
+                this.ctx.lineTo(
+                    bullet.x + Math.cos(trailAngle) * trailLen,
+                    bullet.y + Math.sin(trailAngle) * trailLen
+                );
+                this.ctx.lineWidth = baseR * 2;
+                this.ctx.strokeStyle = trailGradient;
+                this.ctx.stroke();
+                
+                this.ctx.restore();
+            } else {
+                // Normal bullet (yellow) for other towers
+                this.ctx.fillStyle = '#ffff00';
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, baseR, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, baseR + 2, 0, Math.PI * 2);
+                this.ctx.stroke();
+            }
+        }
+    }
+    
+    drawEnemyBullets() {
+        const r = Math.max(3, Math.round(this.gridSize * 0.12));
+        for (const bullet of this.enemyBullets) {
+            // Different colors based on enemy type
+            const colors = {
+                fast: '#ff4444',      // Red for fast
+                basic: '#ff8800',     // Orange for basic
+                tank: '#880000',      // Dark red for tank
+                boss: '#ff00ff'       // Magenta for boss
+            };
+            const color = colors[bullet.enemyType] || '#ff4444';
+            
+            // Draw bullet without glow effect (to prevent canvas color spread)
+            this.ctx.fillStyle = color;
             this.ctx.beginPath();
             this.ctx.arc(bullet.x, bullet.y, r, 0, Math.PI * 2);
             this.ctx.fill();
-            this.ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-            this.ctx.lineWidth = 1;
+            
+            // Draw inner highlight
+            this.ctx.fillStyle = '#ffffff';
             this.ctx.beginPath();
-            this.ctx.arc(bullet.x, bullet.y, r + 2, 0, Math.PI * 2);
-            this.ctx.stroke();
+            this.ctx.arc(bullet.x - r * 0.3, bullet.y - r * 0.3, r * 0.4, 0, Math.PI * 2);
+            this.ctx.fill();
         }
     }
+    
+    updateExplosions() {
+        const now = Date.now();
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            const exp = this.explosions[i];
+            if (now - exp.startTime >= exp.duration) {
+                this.explosions.splice(i, 1);
+            }
+        }
+    }
+    
+    drawExplosions() {
+        const baseSize = Math.max(10, Math.round(this.gridSize * 0.4));
+        for (const exp of this.explosions) {
+            const elapsed = Date.now() - exp.startTime;
+            const progress = Math.min(1, elapsed / exp.duration);
+            const invProgress = 1 - progress;
+            
+            this.ctx.save();
+            
+            if (exp.type === 'ice') {
+                // Real ice explosion - ice shards and blue particles
+                const size = baseSize * (0.5 + progress * 1.5);
+                const alpha = invProgress;
+                
+                // Outer ice burst
+                const iceGradient = this.ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, size);
+                iceGradient.addColorStop(0, `rgba(135, 206, 250, ${alpha * 0.9})`);
+                iceGradient.addColorStop(0.5, `rgba(0, 206, 209, ${alpha * 0.6})`);
+                iceGradient.addColorStop(1, `rgba(0, 191, 255, 0)`);
+                this.ctx.fillStyle = iceGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(exp.x, exp.y, size, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Ice shards flying out
+                for (let i = 0; i < 12; i++) {
+                    const angle = (i * Math.PI / 6) + (progress * Math.PI * 2);
+                    const dist = size * (0.3 + progress * 0.7);
+                    const shardX = exp.x + Math.cos(angle) * dist;
+                    const shardY = exp.y + Math.sin(angle) * dist;
+                    const shardSize = baseSize * 0.15 * invProgress;
+                    
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(shardX, shardY, shardSize, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    // Ice crystal shape
+                    this.ctx.strokeStyle = `rgba(0, 206, 209, ${alpha})`;
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(shardX, shardY);
+                    for (let j = 0; j < 6; j++) {
+                        const pointAngle = angle + (j * Math.PI / 3);
+                        const pointDist = shardSize * 1.5;
+                        this.ctx.lineTo(
+                            shardX + Math.cos(pointAngle) * pointDist,
+                            shardY + Math.sin(pointAngle) * pointDist
+                        );
+                    }
+                    this.ctx.closePath();
+                    this.ctx.stroke();
+                }
+                
+                // Central ice flash
+                const flashSize = baseSize * (0.5 + progress * 0.5) * invProgress;
+                this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
+                this.ctx.beginPath();
+                this.ctx.arc(exp.x, exp.y, flashSize, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+            } else if (exp.type === 'fire') {
+                // Real fire explosion - flames and orange/red burst
+                const size = baseSize * (0.5 + progress * 2);
+                const alpha = invProgress;
+                
+                // Outer fire burst
+                const fireGradient = this.ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, size);
+                fireGradient.addColorStop(0, `rgba(255, 100, 0, ${alpha})`);
+                fireGradient.addColorStop(0.3, `rgba(255, 69, 0, ${alpha * 0.8})`);
+                fireGradient.addColorStop(0.6, `rgba(255, 140, 0, ${alpha * 0.5})`);
+                fireGradient.addColorStop(1, `rgba(255, 69, 0, 0)`);
+                this.ctx.fillStyle = fireGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(exp.x, exp.y, size, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Fire particles/flames
+                for (let i = 0; i < 16; i++) {
+                    const angle = (i * Math.PI / 8) + (progress * Math.PI * 1.5);
+                    const dist = size * (0.2 + progress * 0.8);
+                    const flameX = exp.x + Math.cos(angle) * dist;
+                    const flameY = exp.y + Math.sin(angle) * dist;
+                    const flameSize = baseSize * (0.1 + Math.sin(i) * 0.1) * invProgress;
+                    
+                    // Flame gradient
+                    const flameGrad = this.ctx.createRadialGradient(flameX, flameY, 0, flameX, flameY, flameSize);
+                    const time = Date.now() * 0.01;
+                    flameGrad.addColorStop(0, `rgba(255, ${200 + Math.sin(time + i) * 55}, 0, ${alpha})`);
+                    flameGrad.addColorStop(0.5, `rgba(255, 69, 0, ${alpha * 0.8})`);
+                    flameGrad.addColorStop(1, `rgba(255, 140, 0, 0)`);
+                    this.ctx.fillStyle = flameGrad;
+                    this.ctx.beginPath();
+                    this.ctx.arc(flameX, flameY, flameSize, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+                
+                // Central fire flash
+                const flashSize = baseSize * (0.6 + progress * 0.4) * invProgress;
+                const flashGradient = this.ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, flashSize);
+                flashGradient.addColorStop(0, `rgba(255, 255, 0, ${alpha})`);
+                flashGradient.addColorStop(0.5, `rgba(255, 140, 0, ${alpha * 0.6})`);
+                flashGradient.addColorStop(1, `rgba(255, 69, 0, 0)`);
+                this.ctx.fillStyle = flashGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(exp.x, exp.y, flashSize, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+            } else {
+                // Normal explosion (yellow flash)
+                const size = baseSize * (0.3 + progress * 1.2);
+                const alpha = invProgress;
+                
+                const normalGradient = this.ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, size);
+                normalGradient.addColorStop(0, `rgba(255, 255, 0, ${alpha})`);
+                normalGradient.addColorStop(0.5, `rgba(255, 200, 0, ${alpha * 0.5})`);
+                normalGradient.addColorStop(1, `rgba(255, 150, 0, 0)`);
+                this.ctx.fillStyle = normalGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(exp.x, exp.y, size, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+            
+            this.ctx.restore();
+        }
+    }
+
+    // drawSelectedTowerRangeUI removed per request
     
     updateUI() {
         document.getElementById('health').textContent = this.gameState.health;
@@ -2306,20 +3517,50 @@ class TowerDefenseGame {
         document.getElementById('score').textContent = this.gameState.score;
         document.getElementById('level').textContent = this.currentLevel;
         document.getElementById('diamonds').textContent = this.diamonds;
+        document.getElementById('stars').textContent = this.stars;
         
-        // Update tower costs
+        // Update enemy count (alive enemies)
+        const enemyCount = this.enemies.length;
+        document.getElementById('enemyCount').textContent = enemyCount;
+        
+        // Update tower availability (only icons visible, no info text)
         document.querySelectorAll('.tower-option').forEach(option => {
             const type = option.dataset.tower;
-            const cost = this.towerCosts[type];
-            option.querySelector('.tower-cost').textContent = `$${cost}`;
-            option.style.opacity = this.gameState.money >= cost ? '1' : '0.5';
+            const cost = this.towerCosts[type] || 0;
+            const starCost = this.towerStarCosts[type] || 0;
+            
+            // Check if can afford
+            if (starCost > 0) {
+                option.style.opacity = this.stars >= starCost ? '1' : '0.5';
+            } else {
+                option.style.opacity = this.gameState.money >= cost ? '1' : '0.5';
+            }
         });
         
-        // Update grid expansion cost
-        document.getElementById('expandDiamonds').textContent = this.expansionDiamonds;
-        const expandButton = document.getElementById('expandGrid');
-        expandButton.disabled = this.diamonds < this.expansionDiamonds || (this.cols >= this.maxCols && this.rows >= this.maxRows) || this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1;
-        expandButton.style.opacity = expandButton.disabled ? '0.5' : '1';
+        // Update Special tab board info and buttons
+        const dims = document.getElementById('boardDims');
+        if (dims) dims.textContent = `${this.rows}×${this.cols}`;
+        const dia = document.getElementById('shopDiamonds');
+        if (dia) dia.textContent = String(this.diamonds);
+        const buyRowsBtn = document.getElementById('buyRows');
+        const buyColBtn = document.getElementById('buyCol');
+        const rowsCost = 5, colCost = 3;
+        // Update cost displays
+        const costRowsEl = document.getElementById('costRows');
+        const costColEl = document.getElementById('costCol');
+        if (costRowsEl) costRowsEl.textContent = String(rowsCost);
+        if (costColEl) costColEl.textContent = String(colCost);
+        // Allow editing during pause, or before first wave starts
+        const canEdit = this.gameState.isPaused || (!this.waveInProgress && this.enemies.length === 0 && this.gameState.wave <= 1);
+        if (buyRowsBtn) buyRowsBtn.disabled = !(canEdit && this.diamonds >= rowsCost && this.rows + 2 <= this.maxRows);
+        if (buyColBtn) buyColBtn.disabled = !(canEdit && this.diamonds >= colCost && this.cols + 1 <= this.maxCols);
+        // Update info message
+        const infoMsg = document.querySelector('#tab-special .shop-placeholder:last-child');
+        if (infoMsg) {
+            infoMsg.textContent = this.gameState.isPaused 
+                ? 'Pause rejimində oyun taxtasını genişləndirə bilərsiniz.' 
+                : 'Dalğa başlamadan əvvəl istifadə edin.';
+        }
     }
     
     checkGameOver() {
@@ -2359,10 +3600,14 @@ class TowerDefenseGame {
         this.expansionDiamonds = 5;
         // Keep diamonds persistent - don't reset
         
+        // Clear explosions
+        this.explosions = [];
+        
         // Clear all game objects
         this.towers = [];
         this.enemies = [];
         this.bullets = [];
+        this.enemyBullets = [];
         this.selectedTower = null;
         
         // Reset wave system
@@ -2377,12 +3622,20 @@ class TowerDefenseGame {
         // Reset grid dimensions and path
         this.startCell = null; // Reset to force recalculation
         this.goalCell = null; // Reset to force recalculation
+        this.nextCellId = 1;
+        this.initCellIds(); // Re-initialize cell IDs for new grid
         this.updateGridDimensions();
         this.recomputePath();
         
         // Reset UI
         this.updateUI();
         this.hideTowerContext();
+        
+        // Enable Start Wave button after restart
+        const startWaveBtn = document.getElementById('startWave');
+        if (startWaveBtn) {
+            startWaveBtn.disabled = false;
+        }
         
         // Reset speed to 1x
         this.setGameSpeed(1);
@@ -2395,7 +3648,11 @@ class TowerDefenseGame {
             this.waveInProgress = false;
             this.gameState.wave++;
             this.gameState.money += 50; // Wave completion bonus
-            this.waveConfig.enemiesPerWave = Math.floor(this.waveConfig.enemiesPerWave * 1.2);
+            // Increase enemy count every 5 waves (additive)
+            if (this.gameState.wave % 5 === 0) {
+                this.waveConfig.enemiesPerWave += 2;
+                this.debugLog(`👾 Düşmən sayı artdı! Yeni say: ${this.waveConfig.enemiesPerWave}`);
+            }
             
             // Hər 3 wave-də level artır
             if (this.gameState.wave % 3 === 0) {
@@ -2434,8 +3691,13 @@ class TowerDefenseGame {
             
             // Update game objects
             this.updateEnemies();
+            this.updateEnemyBullets();
             this.updateTowers();
             this.updateBullets();
+            this.updateExplosions();
+            
+            // Update UI to show current enemy count
+            this.updateUI();
             
             // Check game conditions
             this.checkGameOver();
@@ -2449,12 +3711,40 @@ class TowerDefenseGame {
         
         // Draw game elements - Kulelər yolun üstündə görünsün
         this.drawGrid();
-        this.drawTowers();  // Kulelər əvvəl çizilsin
-        this.drawPath();    // Yol sonra çizilsin
+        this.drawPath();    // Əvvəl yolu çək
+        this.drawTowers();  // Qüllələr yolun üstündə görünsün
         this.drawCastle();  // Qala çizilsin
         this.drawCastleHealthBar();  // Qala can barı çizilsin
         this.drawEnemies();
         this.drawBullets();
+        this.drawEnemyBullets();
+        this.drawExplosions();
+        
+        // Reset shadowBlur to prevent canvas color spread
+        this.ctx.shadowBlur = 0;
+        this.ctx.shadowColor = 'transparent';
+        
+        // Draw wave message
+        if (this.waveMessage && Date.now() < this.waveMessage.until) {
+            const alpha = Math.min(1.0, (this.waveMessage.until - Date.now()) / 500); // Fade out in last 500ms
+            this.ctx.save();
+            this.ctx.globalAlpha = alpha;
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.strokeStyle = '#000000';
+            this.ctx.lineWidth = 4;
+            this.ctx.font = 'bold 32px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            const text = this.waveMessage.text;
+            const x = this.canvas.width / 2;
+            const y = 80;
+            // Draw text with outline
+            this.ctx.strokeText(text, x, y);
+            this.ctx.fillText(text, x, y);
+            this.ctx.restore();
+        } else if (this.waveMessage && Date.now() >= this.waveMessage.until) {
+            this.waveMessage = null; // Clear expired message
+        }
         
         // Draw path blocked warning
         if (this.path.length === 0) {

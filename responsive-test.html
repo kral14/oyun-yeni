@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Responsive Board Test (11x15)</title>
+    <title>Responsive Board Test (9x15)</title>
     <style>
         :root{--bg:#000;--blue:#4a90e2}
         *{box-sizing:border-box}
@@ -30,6 +30,13 @@
         /* Tower Shop (test panel) */
         .shop{background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px}
         .shop h3{margin:0 0 10px;font-size:16px;color:#cfe6ff}
+        .tabs{display:flex;gap:6px;margin-bottom:8px}
+        .tab{flex:1;padding:6px 10px;background:#0f1a2a;border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e9eef6;cursor:pointer}
+        .tab.active{background:#14426b;border-color:#2b6ea3}
+        .tabpage{display:none}
+        .tabpage.active{display:block}
+        .muted{opacity:.8;font-size:13px;margin:6px 0 10px}
+        .rowbtns{display:flex;gap:8px;flex-wrap:wrap}
         .shop .options{display:flex;flex-direction:column;gap:8px}
         .shop .opt{display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px}
         .shop .icon{width:32px;height:32px;border-radius:50%;border:2px solid #fff}
@@ -45,18 +52,31 @@
     </head>
 <body>
     <div class="wrap">
-        <div class="head">
-            <div>Responsive Board Test — 11x15, path row 6</div>
+            <div class="head">
+            <div>Responsive Board Test — 9x15, path middle</div>
             <div class="meta" id="meta"></div>
         </div>
         <div class="area">
             <canvas id="board" width="960" height="540"></canvas>
             <div class="shop" id="shop">
-                <h3>Tower Shop</h3>
-                <div class="options">
-                    <div class="opt"><div class="icon basic"></div><div>Basic Tower — 50$</div></div>
-                    <div class="opt"><div class="icon rapid"></div><div>Rapid Tower — 100$</div></div>
-                    <div class="opt"><div class="icon heavy"></div><div>Heavy Tower — 200$</div></div>
+                <h3>Qüllə Mağazası</h3>
+                <div class="tabs">
+                    <button class="tab active" data-tab="tab-towers">Qüllələr</button>
+                    <button class="tab" data-tab="tab-board">Oyun Taxtası</button>
+                </div>
+                <div class="tabpage active" id="tab-towers">
+                    <div class="options">
+                        <div class="opt"><div class="icon basic"></div><div>Sadə Qüllə — 50$</div></div>
+                        <div class="opt"><div class="icon rapid"></div><div>Sürətli Qüllə — 100$</div></div>
+                        <div class="opt"><div class="icon heavy"></div><div>Ağır Qüllə — 200$</div></div>
+                    </div>
+                </div>
+                <div class="tabpage" id="tab-board">
+                    <div class="muted">Ölçülər: <span id="boardDims">9×15</span> — Almaz: <span id="diamonds">0</span></div>
+                    <div class="rowbtns">
+                        <button id="buyRows" data-cost="5">+2 Sətir (yuxarı+aşağı) — 💎5</button>
+                        <button id="buyCol" data-cost="3">+1 Sütun (mərkəzdən sağa) — 💎3</button>
+                    </div>
                 </div>
             </div>
             <div class="side">

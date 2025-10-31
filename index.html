@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Tower Defense Game</title>
-    <link rel="stylesheet" href="style.css">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="style.css?v=1">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="manifest.webmanifest">
     <meta name="theme-color" content="#0a84ff">
@@ -38,11 +41,49 @@
         })();
     </script>
     <script>
+        // Auto cache-busting loader: always request fresh JS/CSS
+        (function(){
+            try {
+                var v = Date.now().toString();
+                // Bust CSS link if present
+                var links = document.querySelectorAll('link[rel="stylesheet"]');
+                links.forEach(function(l){
+                    var href = l.getAttribute('href') || '';
+                    var base = href.split('?')[0];
+                    l.setAttribute('href', base + '?v=' + v);
+                });
+                // Inject versioned game.js before closing head
+                var head = document.getElementsByTagName('head')[0];
+                var s = document.createElement('script');
+                s.src = 'game.js?v=' + v;
+                s.defer = false;
+                head.appendChild(s);
+                // Prevent duplicate base script later
+                window.__INJECTED_VERSIONED_SCRIPT__ = true;
+                window.__BUILD_VERSION__ = v;
+            } catch(e) {}
+        })();
+    </script>
+    <script>
         // Register service worker for PWA installability
         (function(){
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function(){
-                    navigator.serviceWorker.register('sw.js?v=2.1').then(function(reg){ reg.update && reg.update(); }).catch(function(){});
+                    // Before registering new SW, clear old caches and unregister to avoid stale assets
+                    Promise.resolve().then(function(){
+                        return caches && caches.keys ? caches.keys().then(function(keys){
+                            return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+                        }) : null;
+                    }).then(function(){
+                        return navigator.serviceWorker.getRegistrations();
+                    }).then(function(regs){
+                        return Promise.all(regs.map(function(r){ return r.unregister(); }));
+                    }).catch(function(){})
+                    .finally(function(){
+                        navigator.serviceWorker.register('sw.js?v=' + (window.__BUILD_VERSION__ || Date.now())).then(function(reg){
+                            if (reg && reg.update) reg.update();
+                        }).catch(function(){});
+                    });
                 });
             }
         })();
@@ -51,78 +92,228 @@
 <body>
     <div class="game-container">
         <div class="game-header">
-            <h1>Tower Defense</h1>
+            <h1>Qüllə Müdafiəsi</h1>
             <div class="game-stats">
                 <div class="stat">
-                    <span class="stat-label">Health:</span>
+                    <span class="stat-label">Sağlamlıq:</span>
                     <span id="health">100</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Money:</span>
+                    <span class="stat-label">Pul:</span>
                     <span id="money">500</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Wave:</span>
+                    <span class="stat-label">Dalğa:</span>
                     <span id="wave">1</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Score:</span>
+                    <span class="stat-label">Xal:</span>
                     <span id="score">0</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Level:</span>
+                    <span class="stat-label">Səviyyə:</span>
                     <span id="level">1</span>
                 </div>
                 <div class="stat">
                     <span class="stat-label">💎:</span>
                     <span id="diamonds">0</span>
                 </div>
+                <div class="stat">
+                    <span class="stat-label">⭐:</span>
+                    <span id="stars">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Düşmənlər:</span>
+                    <span id="enemyCount">0</span>
+                </div>
+                <button id="toggleShop" class="toggle-shop">Qüllə Mağazası</button>
             </div>
         </div>
         
         <div class="game-area">
-            <canvas id="gameCanvas" width="960" height="540"></canvas>
+            <div class="board-wrap">
+                <canvas id="gameCanvas" width="1280" height="720"></canvas>
+                <div id="labelW" class="size-label size-label-w">u: 1280</div>
+                <div id="labelH" class="size-label size-label-h">h: 720</div>
+            </div>
             
             <div class="tower-shop">
-                <h3>Tower Shop</h3>
-                <div class="tower-options">
-                    <div class="tower-option" data-tower="basic">
-                        <div class="tower-icon basic-tower"></div>
-                        <div class="tower-info">
-                            <div class="tower-name">Basic Tower</div>
-                            <div class="tower-cost">$50</div>
+                <h3>Qüllə Mağazası</h3>
+                <div class="shop-tabs">
+                    <button class="shop-tab" data-tab="tab-controls">İdarətmələr</button>
+                    <button class="shop-tab active" data-tab="tab-towers">Qüllələr</button>
+                    <button class="shop-tab" data-tab="tab-special">Xüsusi</button>
+                </div>
+
+                <div class="shop-tab-content active" id="tab-towers">
+                    <div class="tower-options" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; padding: 20px;">
+                        <div class="tower-option" data-tower="basic" data-damage="20" data-firerate="1000" data-cost="$50">
+                            <div class="tower-icon basic-tower"></div>
+                            <div class="tower-info">
+                                <div class="tower-name">Sadə Qüllə</div>
+                                <div class="tower-cost">$50</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Sadə Qüllə</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 20</div>
+                                    <div>🔥 Atəş sürəti: 1.0s</div>
+                                    <div>💰 Qiymət: $50</div>
+                                </div>
+                                <div class="tooltip-desc">Balanslı zərər və atəş sürəti ilə orta səviyyəli qüllə</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="tower-option" data-tower="rapid">
-                        <div class="tower-icon rapid-tower"></div>
-                        <div class="tower-info">
-                            <div class="tower-name">Rapid Tower</div>
-                            <div class="tower-cost">$100</div>
+                        <div class="tower-option" data-tower="rapid" data-damage="10" data-firerate="300" data-cost="$100">
+                            <div class="tower-icon rapid-tower"></div>
+                            <div class="tower-info">
+                                <div class="tower-name">Sürətli Qüllə</div>
+                                <div class="tower-cost">$100</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Sürətli Qüllə</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 10</div>
+                                    <div>🔥 Atəş sürəti: 0.3s</div>
+                                    <div>💰 Qiymət: $100</div>
+                                </div>
+                                <div class="tooltip-desc">Çox sürətli atəş açır, az zərər verir - çox sayda düşmən üçün ideal</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="tower-option" data-tower="heavy">
-                        <div class="tower-icon heavy-tower"></div>
-                        <div class="tower-info">
-                            <div class="tower-name">Heavy Tower</div>
-                            <div class="tower-cost">$200</div>
+                        <div class="tower-option" data-tower="heavy" data-damage="50" data-firerate="2000" data-cost="$200">
+                            <div class="tower-icon heavy-tower"></div>
+                            <div class="tower-info">
+                                <div class="tower-name">Ağır Qüllə</div>
+                                <div class="tower-cost">$200</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Ağır Qüllə</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 50</div>
+                                    <div>🔥 Atəş sürəti: 2.0s</div>
+                                    <div>💰 Qiymət: $200</div>
+                                </div>
+                                <div class="tooltip-desc">Çox güclü zərər verir, lakin yavaş atəş açır - güclü düşmənlər üçün</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="ice" data-star-cost="1" data-damage="15" data-firerate="800" data-cost="⭐1">
+                            <div class="tower-icon ice-tower"></div>
+                            <div class="tower-star-cost">⭐1</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Buz Qülləsi</div>
+                                <div class="tower-cost">⭐1</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Buz Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 15</div>
+                                    <div>🔥 Atəş sürəti: 0.8s</div>
+                                    <div>💰 Qiymət: ⭐1</div>
+                                </div>
+                                <div class="tooltip-desc">Buz mərmisi düşmənləri dondurur və yavaşladır</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="flame" data-star-cost="2" data-damage="25" data-firerate="1000" data-cost="⭐2">
+                            <div class="tower-icon flame-tower"></div>
+                            <div class="tower-star-cost">⭐2</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Alov Qülləsi</div>
+                                <div class="tower-cost">⭐2</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Alov Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 25</div>
+                                    <div>🔥 Atəş sürəti: 1.0s</div>
+                                    <div>💰 Qiymət: ⭐2</div>
+                                </div>
+                                <div class="tooltip-desc">Alov mərmisi düşmənləri yandırır - zamanla zərər verir</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="laser" data-star-cost="3" data-damage="30" data-firerate="500" data-cost="⭐3">
+                            <div class="tower-icon laser-tower"></div>
+                            <div class="tower-star-cost">⭐3</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Lazer Qülləsi</div>
+                                <div class="tower-cost">⭐3</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Lazer Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 30</div>
+                                    <div>🔥 Atəş sürəti: 0.5s</div>
+                                    <div>💰 Qiymət: ⭐3</div>
+                                </div>
+                                <div class="tooltip-desc">Güclü lazer atəşi - yüksək zərər və sürətli atəş kombinasiyası</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="plasma" data-star-cost="4" data-damage="60" data-firerate="1500" data-cost="⭐4">
+                            <div class="tower-icon plasma-tower"></div>
+                            <div class="tower-star-cost">⭐4</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Plazma Qülləsi</div>
+                                <div class="tower-cost">⭐4</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Plazma Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 60</div>
+                                    <div>🔥 Atəş sürəti: 1.5s</div>
+                                    <div>💰 Qiymət: ⭐4</div>
+                                </div>
+                                <div class="tooltip-desc">Plazma barier yaradır - yoldan keçən düşmənlərə zərər verir</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                
-                <div class="game-controls">
-                    <button id="startWave">Start Wave</button>
-                    <div class="auto-start-container">
-                        <input type="checkbox" id="autoStart" />
-                        <label for="autoStart">Auto Start</label>
+
+                <div class="shop-tab-content" id="tab-controls">
+                    <div class="game-controls" style="display: flex; flex-direction: column; gap: 12px; padding: 15px;">
+                        <button id="startWave" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Dalğanı Başlat</button>
+                        <div class="auto-start-container" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                            <input type="checkbox" id="autoStart" />
+                            <label for="autoStart" style="color: #fff; cursor: pointer;">Avtomatik Başlat</label>
+                        </div>
+                        <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Fasilə</button>
+                        <button id="restartGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Yenidən başlat</button>
+                        <div class="speed-controls" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                            <label style="color: #fff; font-size: 13px;">Sürət:</label>
+                            <button id="speed1" class="speed-btn" style="flex: 1; padding: 8px;">1x</button>
+                            <button id="speed2" class="speed-btn" style="flex: 1; padding: 8px;">2x</button>
+                            <button id="speed3" class="speed-btn" style="flex: 1; padding: 8px;">3x</button>
+                        </div>
                     </div>
-                    <button id="pauseGame">Pause</button>
-                    <button id="restartGame">Restart</button>
-                    <button id="expandGrid">Expand Grid (💎<span id="expandDiamonds">5</span>)</button>
-                    <div class="speed-controls">
-                        <label>Speed:</label>
-                        <button id="speed1">1x</button>
-                        <button id="speed2">2x</button>
-                        <button id="speed3">3x</button>
+                </div>
+
+                <div class="shop-tab-content" id="tab-special">
+                    <div class="shop-placeholder" style="margin-bottom:8px">Oyun Taxtası (ölçü): <span id="boardDims">9×15</span> — 💎 <span id="shopDiamonds">0</span></div>
+                    <div class="tower-options">
+                        <div class="tower-option" style="cursor:default">
+                            <div class="tower-info">
+                                <div class="tower-name">+2 Sətir (yuxarı + aşağı)</div>
+                                <div class="tower-cost">💎<span id="costRows">5</span></div>
+                            </div>
+                            <button id="buyRows" class="game-controls" style="padding:8px 12px">Al</button>
+                        </div>
+                        <div class="tower-option" style="cursor:default">
+                            <div class="tower-info">
+                                <div class="tower-name">+1 Sütun (mərkəzdən sağa)</div>
+                                <div class="tower-cost">💎<span id="costCol">3</span></div>
+                            </div>
+                            <button id="buyCol" class="game-controls" style="padding:8px 12px">Al</button>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 8px;">
+                        <div style="margin-bottom: 12px; font-weight: bold; color: #00d4ff; font-size: 14px; text-align: center;">🎁 Hədiyyə Kodu</div>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <input type="text" id="giftCodeInput" placeholder="Kodu daxil edin..." 
+                                   style="width: 100%; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 13px; font-family: Arial, sans-serif; box-sizing: border-box;"
+                                   autocomplete="off" spellcheck="false">
+                            <button id="redeemCode" class="game-controls" 
+                                    style="width: 100%; padding: 12px; background: linear-gradient(45deg, #4a90e2, #357abd); border: none; border-radius: 6px; color: #fff; font-weight: bold; cursor: pointer; font-size: 13px;">
+                                Təsdiq Et
+                            </button>
+                        </div>
+                        <div id="giftCodeMessage" style="font-size: 11px; color: #a0a0a0; text-align: center; margin-top: 10px; min-height: 16px; padding: 5px;"></div>
                     </div>
                 </div>
             </div>
@@ -130,20 +321,65 @@
         
         <div class="game-info">
             <div class="selected-tower-info" id="selectedTowerInfo" style="display: none;">
-                <h4>Selected Tower</h4>
+                <h4>Seçilmiş Qüllə</h4>
                 <div id="towerDetails"></div>
-                <button id="upgradeTower">Upgrade ($<span id="upgradeCost">0</span>)</button>
-                <button id="sellTower">Sell ($<span id="sellValue">0</span>)</button>
+                <button id="upgradeTower">Yüksəlt ($<span id="upgradeCost">0</span>)</button>
+                <button id="sellTower">Sat ($<span id="sellValue">0</span>)</button>
             </div>
         </div>
 
         <!-- Context menu that appears near a clicked tower -->
-        <div id="towerContext" style="display:none;">
-            <button id="ctxUpgrade">Upgrade</button>
-            <button id="ctxSell">Sell</button>
+        <div id="towerContext" style="display:none; gap:8px; flex-direction:column; background:rgba(10,10,10,0.92); padding:10px; border:1px solid #00bcd4; border-radius:8px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="ctx-btn" id="ctxRange">🌀 <span id="ctxRangeVal">0</span> (<span id="ctxRangeUp">0/3</span>) — $<span id="ctxRangeCost">50</span></button>
+                <button class="ctx-btn" id="ctxDamage">💥 <span id="ctxDamageVal">0</span> (<span id="ctxDamageUp">0/3</span>) — $<span id="ctxDamageCost">50</span></button>
+                <button class="ctx-btn" id="ctxRate">⚡ <span id="ctxRateVal">0</span> (<span id="ctxRateUp">0/3</span>) — $<span id="ctxRateCost">50</span></button>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="ctx-btn" id="ctxHeal">🩹 $20</button>
+            </div>
+            <button class="ctx-btn" id="ctxAwaken">🌈 (💎20)</button>
+            <button class="ctx-btn" id="ctxShield">🛡️ (💎50)</button>
+            <div style="display:flex; gap:8px;">
+                <button class="ctx-btn" id="ctxSell">🪙</button>
+            </div>
         </div>
     </div>
     
-    <script src="game.js"></script>
+    <script>
+        // If dynamic loader failed for any reason, fallback to versioned include
+        (function(){
+            if (!window.__INJECTED_VERSIONED_SCRIPT__) {
+                var v = window.__BUILD_VERSION__ || Date.now().toString();
+                var s = document.createElement('script');
+                s.src = 'game.js?v=' + v;
+                document.body.appendChild(s);
+            }
+        })();
+    </script>
+    <script>
+        // Shop toggle and tabs
+        (function(){
+            const shop = document.querySelector('.tower-shop');
+            const btn = document.getElementById('toggleShop');
+            if (shop && btn) {
+                btn.addEventListener('click', function(){
+                    shop.classList.toggle('hidden');
+                });
+            }
+            const tabs = document.querySelectorAll('.shop-tab');
+            const pages = document.querySelectorAll('.shop-tab-content');
+            tabs.forEach(function(t){
+                t.addEventListener('click', function(){
+                    tabs.forEach(function(x){ x.classList.remove('active'); });
+                    pages.forEach(function(p){ p.classList.remove('active'); });
+                    t.classList.add('active');
+                    var id = t.getAttribute('data-tab');
+                    var page = document.getElementById(id);
+                    if (page) page.classList.add('active');
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
