@@ -196,7 +196,13 @@
     
     <script>
         // API base URL (relative path - same server)
-        const API_BASE_URL = '/api';
+        // API URL - GitHub Pages və production üçün Render URL-i istifadə et
+        const isGitHubPages = window.location.hostname.includes('github.io');
+        const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+        const API_BASE_URL = window.API_BASE_URL || 
+                            (isGitHubPages || isProduction 
+                                ? 'https://oyun-yeni.onrender.com/api' 
+                                : '/api');
         
         // Check if already logged in
         if (localStorage.getItem('towerDefenseLoggedIn') === 'true') {

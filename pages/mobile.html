@@ -7,9 +7,9 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Tower Defense — Mobile</title>
-    <link rel="stylesheet" href="/assets/style.css">
-    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="/assets/manifest.webmanifest">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="assets/manifest.webmanifest">
     <meta name="theme-color" content="#0a84ff">
     <style>
         /* Force mobile-first layout: full-width main, header hidden */
@@ -263,7 +263,7 @@
             window.location.href = 'login.html';
         }
     </script>
-    <script src="/assets/game.js"></script>
+    <script src="assets/game.js"></script>
     <script>
         (function(){
             const shop = document.getElementById('mobileShop');
@@ -359,7 +359,7 @@
         (function(){
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function(){
-                    navigator.serviceWorker.register('/assets/sw.js?v=2.1').then(function(reg){ reg.update && reg.update(); }).catch(function(){});
+                    navigator.serviceWorker.register('assets/sw.js?v=2.1').then(function(reg){ reg.update && reg.update(); }).catch(function(){});
                 });
             }
         })();
