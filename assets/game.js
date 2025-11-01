@@ -696,6 +696,20 @@ class TowerDefenseGame {
                     // Qeydi sil
                     if (this.API_BASE_URL) {
                         fetch(`${this.API_BASE_URL}/delete-game-state`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                user_id: this.userId
+                            })
+                        }).catch(err => console.error('Delete game state error:', err));
+                    }
+                }
+            } else if (!this.demoMode && savedState && savedState.success && savedState.is_game_over) {
+                // Game over olubsa, qeydi sil və yenidən başla
+                if (this.API_BASE_URL) {
+                    fetch(`${this.API_BASE_URL}/delete-game-state`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -705,17 +719,6 @@ class TowerDefenseGame {
                         })
                     }).catch(err => console.error('Delete game state error:', err));
                 }
-            } else if (savedState && savedState.success && savedState.is_game_over) {
-                // Game over olubsa, qeydi sil və yenidən başla
-                fetch(`${this.API_BASE_URL}/delete-game-state`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        user_id: this.userId
-                    })
-                }).catch(err => console.error('Delete game state error:', err));
             }
         }
         
