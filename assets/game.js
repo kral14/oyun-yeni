@@ -4657,6 +4657,10 @@ class TowerDefenseGame {
     }
     
     async saveGameStats() {
+        // Demo mode-da API çağırışı skip et
+        if (this.demoMode || !this.API_BASE_URL) {
+            return;
+        }
         if (!this.userId) return;
         
         try {
@@ -5037,6 +5041,13 @@ class TowerDefenseGame {
                 // Mağaza yüksəltmələri qeyd et
                 towerShopUpgrades: this.towerShopUpgrades || { basic: { damage: 0, fireRate: 0 }, rapid: { damage: 0, fireRate: 0 }, heavy: { damage: 0, fireRate: 0 } }
             };
+            
+            if (!this.API_BASE_URL) {
+                if (showMessage) {
+                    alert('ℹ️ Demo mode: Oyun vəziyyəti qeyd edilmir.');
+                }
+                return;
+            }
             
             const response = await fetch(`${this.API_BASE_URL}/save-game-state`, {
                 method: 'POST',
