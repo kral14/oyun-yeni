@@ -32,14 +32,15 @@ class TowerDefenseGame {
         this.plasmaPairingMode = false; // İkinci qülləni birləşdirmək üçün gözləyən zaman true
         this.plasmaPairingTower = null; // Cütləşdirmək üçün seçilmiş ilk qüllə
         
-        // API inteqrasiyası - GitHub Pages üçün backend yoxdur, yalnız frontend demo
-        // API çağırışları disable olunur GitHub Pages üçün
+        // API inteqrasiyası - GitHub Pages və Render üçün localStorage istifadə edirik
         const isGitHubPages = window.location.hostname.includes('github.io');
+        const isRender = window.location.hostname.includes('onrender.com');
         const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
         
-        // GitHub Pages-də backend yoxdur, demo mode aktiv olur
-        this.API_BASE_URL = null; // GitHub Pages üçün API disable
-        this.demoMode = isGitHubPages; // GitHub Pages-də demo mode
+        // GitHub Pages və Render-də backend varsa da, localStorage-da da qeyd edək (çox cihaz üçün)
+        // Render-də backend var, amma çox cihazda eyni localStorage üçün localStorage istifadə edirik
+        this.API_BASE_URL = (isGitHubPages || isRender) ? (isRender ? 'https://oyun-yeni.onrender.com/api' : null) : '/api';
+        this.useLocalStorage = isGitHubPages || isRender; // GitHub Pages və Render-də localStorage istifadə et
         this.userId = null;
         this.gameStartTime = null;
         this.enemiesKilledThisGame = 0;
@@ -676,8 +677,8 @@ class TowerDefenseGame {
         }
         
         // Qeyd yoxlaması - əgər qeyd varsa və game over deyilsə, davam etmək sualı
-        // Demo mode-da qeyd yoxlaması skip et
-        if (!this.demoMode && this.userId) {
+        // localStorage və ya backend-dən yüklə
+        if (this.userId || this.useLocalStorage) {
             const savedState = await this.loadGameState();
             if (savedState && savedState.success && savedState.game_state && !savedState.is_game_over) {
                 const continueGame = confirm('Qaldığınız yerdən davam etmək istəyirsinizmi?');
@@ -4995,14 +4996,76 @@ class TowerDefenseGame {
     
     // Oyun vəziyyətini yadda saxla
     async saveGameState(showMessage = true) {
-        // GitHub Pages-də demo mode: save disable
-        if (this.demoMode) {
-            if (showMessage) {
-                alert('ℹ️ Demo mode: Oyun vəziyyəti qeyd edilmir. Tam funksionallıq üçün backend server lazımdır.');
+        if (this.gameState.gameOver) return;
+        
+        // localStorage istifadə et (GitHub Pages və Render üçün)
+        if (this.useLocalStorage) {
+            try {
+                const gameDuration = this.gameStartTime ? Math.floor((Date.now() - this.gameStartTime) / 1000) : 0;
+                
+                const gameStateData = {
+                    gameState: {
+                        health: this.gameState.health,
+                        money: this.gameState.money,
+                        wave: this.gameState.wave,
+                        score: this.gameState.score,
+                        isPaused: this.gameState.isPaused,
+                        gameOver: this.gameState.gameOver
+                    },
+                    towers: this.towers.map(t => ({
+                        col: t.col,
+                        row: t.row,
+                        type: t.type,
+                        level: t.level,
+                        range: t.range,
+                        damage: t.damage,
+                        fireRate: t.fireRate,
+                        health: t.health,
+                        maxHealth: t.maxHealth,
+                        rangeUp: t.rangeUp || 0,
+                        damageUp: t.damageUp || 0,
+                        rateUp: t.rateUp || 0,
+                        awakened: t.awakened || false,
+                        shielded: t.shielded || false,
+                        autoHealEnabled: t.autoHealEnabled || false,
+                        autoHealThreshold: t.autoHealThreshold || 5,
+                        plasmaActivated: t.plasmaActivated || false,
+                        plasmaPairId: t.plasmaPairId || null,
+                        side: t.side || null
+                    })),
+                    diamonds: this.diamonds,
+                    stars: this.stars,
+                    currentLevel: this.currentLevel,
+                    levelMultiplier: this.levelMultiplier,
+                    rows: this.rows,
+                    cols: this.cols,
+                    enemiesKilledThisGame: this.enemiesKilledThisGame,
+                    gameDuration: gameDuration,
+                    gameStartTime: this.gameStartTime,
+                    // Mağaza yüksəltmələri qeyd et
+                    towerShopUpgrades: this.towerShopUpgrades || { basic: { damage: 0, fireRate: 0 }, rapid: { damage: 0, fireRate: 0 }, heavy: { damage: 0, fireRate: 0 } }
+                };
+                
+                // localStorage-da saxla
+                localStorage.setItem('towerDefenseGameState', JSON.stringify(gameStateData));
+                localStorage.setItem('towerDefenseGameStateTime', Date.now().toString());
+                
+                if (showMessage) {
+                    alert('✅ Oyun vəziyyəti saxlanıldı! (localStorage)');
+                }
+                this.debugSuccess('Oyun vəziyyəti localStorage-da saxlanıldı');
+                return;
+            } catch (error) {
+                console.error('Save game state to localStorage error:', error);
+                if (showMessage) {
+                    alert(`❌ Oyun vəziyyəti saxlanılmadı: ${error.message}`);
+                }
+                return;
             }
-            return;
         }
-        if (!this.userId || this.gameState.gameOver) return;
+        
+        // Backend istifadə et (local server üçün)
+        if (!this.userId) return;
         
         try {
             const gameDuration = this.gameStartTime ? Math.floor((Date.now() - this.gameStartTime) / 1000) : 0;
@@ -5052,7 +5115,7 @@ class TowerDefenseGame {
             
             if (!this.API_BASE_URL) {
                 if (showMessage) {
-                    alert('ℹ️ Demo mode: Oyun vəziyyəti qeyd edilmir.');
+                    alert('ℹ️ API server yoxdur. localStorage istifadə edilir.');
                 }
                 return;
             }
@@ -5092,6 +5155,29 @@ class TowerDefenseGame {
     
     // Oyun vəziyyətini yüklə
     async loadGameState() {
+        // GitHub Pages-də localStorage istifadə et
+        if (this.useLocalStorage) {
+            try {
+                const savedState = localStorage.getItem('towerDefenseGameState');
+                const savedTime = localStorage.getItem('towerDefenseGameStateTime');
+                
+                if (savedState) {
+                    const gameStateData = JSON.parse(savedState);
+                    return {
+                        success: true,
+                        game_state: gameStateData,
+                        is_game_over: gameStateData.gameState.gameOver || false,
+                        saved_at: savedTime ? new Date(parseInt(savedTime)).toISOString() : null
+                    };
+                }
+                return null;
+            } catch (error) {
+                console.error('Load game state from localStorage error:', error);
+                return null;
+            }
+        }
+        
+        // Backend istifadə et
         if (!this.userId) return null;
         
         try {
