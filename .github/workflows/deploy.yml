@@ -1,39 +1,21 @@
-name: Deploy to Production
+# Heroku deployment workflow - DISABLED
+# GitHub Pages istifadə edirik, Heroku istifadə edilmir
+name: Deploy to Production (Disabled)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    # Manual trigger only - disabled by default
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: false  # Disabled
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: Install dependencies
+    - name: Deploy disabled
       run: |
-        pip install -r requirements.txt
-    
-    - name: Deploy to Heroku
-      if: env.HEROKU_API_KEY != ''
-      uses: akhileshns/heroku-deploy@v3.12.12
-      with:
-        heroku_api_key: ${{secrets.HEROKU_API_KEY}}
-        heroku_app_name: ${{secrets.HEROKU_APP_NAME}}
-        heroku_email: ${{secrets.HEROKU_EMAIL}}
-        appdir: "."
-        procfile: "web: python api/api_server.py"
-    
-    - name: Run tests
-      run: |
-        echo "Deployment successful!"
+        echo "Heroku deployment is disabled. Use GitHub Pages instead."
 
