@@ -116,23 +116,43 @@ heroku config:set FLASK_ENV=production
 git push heroku main
 ```
 
-### Render
+### Render (Ən Asan Yol - GitHub ilə Birbaşa İnteqrasiya)
 
-1. Render.com-da yeni Web Service yaradın
+1. https://render.com -ə keçin və hesab yaradın (GitHub ilə login)
 
-2. Repository-ni birləşdirin
+2. **New +** → **Web Service** seçin
 
-3. Build Command:
-```bash
-pip install -r requirements.txt
-```
+3. GitHub repository-ni birləşdirin:
+   - **Connect GitHub** düyməsinə klikləyin
+   - `kral14/oyun-yeni` repository-sini seçin
 
-4. Start Command:
-```bash
-python api/api_server.py
-```
+4. Konfiqurasiya:
+   - **Name:** `oyun-yeni`
+   - **Region:** `Oregon (US West)` (və ya istədiyiniz)
+   - **Branch:** `main`
+   - **Runtime:** `Python 3`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `python api/api_server.py`
 
-5. Environment variables əlavə edin (dashboard-da)
+5. **Advanced** → **Environment Variables** əlavə edin:
+   ```
+   DB_HOST=ep-sparkling-grass-a4c444kf-pooler.us-east-1.aws.neon.tech
+   DB_DATABASE=neondb
+   DB_USER=neondb_owner
+   DB_PASSWORD=npg_SxvR6sZIK9yi
+   SMTP_SERVER=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_EMAIL=neondefendergame@gmail.com
+   SMTP_PASSWORD=ugcfkjvlsphlfxar
+   BASE_URL=https://oyun-yeni.onrender.com
+   RESET_PASSWORD_URL=https://oyun-yeni.onrender.com/reset-password.html
+   FLASK_ENV=production
+   PORT=5000
+   ```
+
+6. **Create Web Service** düyməsinə klikləyin
+
+7. Render avtomatik deploy edəcək və hər push-da yenilənəcək!
 
 ### Railway
 

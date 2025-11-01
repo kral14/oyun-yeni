@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: oyun-yeni
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python api/api_server.py
+    envVars:
+      - key: DB_HOST
+        value: ep-sparkling-grass-a4c444kf-pooler.us-east-1.aws.neon.tech
+      - key: DB_DATABASE
+        value: neondb
+      - key: DB_USER
+        value: neondb_owner
+      - key: DB_PASSWORD
+        value: npg_SxvR6sZIK9yi
+      - key: SMTP_SERVER
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_EMAIL
+        value: neondefendergame@gmail.com
+      - key: SMTP_PASSWORD
+        value: ugcfkjvlsphlfxar
+      - key: FLASK_ENV
+        value: production
+      - key: PORT
+        value: 5000
+
