@@ -5234,7 +5234,7 @@ class TowerDefenseGame {
     
     restartGame() {
         // Oyun vəziyyətini sil
-        if (this.userId) {
+        if (!this.demoMode && this.userId && this.API_BASE_URL) {
             fetch(`${this.API_BASE_URL}/delete-game-state`, {
                 method: 'POST',
                 headers: {

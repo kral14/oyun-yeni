@@ -420,8 +420,14 @@
     </div>
     
     <script>
-        // Check login status
+        // Check login status - GitHub Pages üçün skip et
         (function(){
+            // GitHub Pages üçün login check skip et (demo mode)
+            const isGitHubPages = window.location.hostname.includes('github.io');
+            if (isGitHubPages) {
+                // Demo mode: login check skip
+                return;
+            }
             const loggedIn = localStorage.getItem('towerDefenseLoggedIn');
             const userId = localStorage.getItem('towerDefenseUserId');
             if (loggedIn !== 'true' || !userId) {
