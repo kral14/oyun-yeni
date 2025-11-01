@@ -4673,8 +4673,8 @@ class TowerDefenseGame {
     }
     
     async saveGameStats() {
-        // Demo mode-da API çağırışı skip et
-        if (this.demoMode || !this.API_BASE_URL) {
+        // localStorage və ya API yoxdursa skip et
+        if (this.useLocalStorage || !this.API_BASE_URL) {
             return;
         }
         if (!this.userId) return;
