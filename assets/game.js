@@ -32,15 +32,26 @@ class TowerDefenseGame {
         this.plasmaPairingMode = false; // İkinci qülləni birləşdirmək üçün gözləyən zaman true
         this.plasmaPairingTower = null; // Cütləşdirmək üçün seçilmiş ilk qüllə
         
-        // API inteqrasiyası - GitHub Pages və Render üçün localStorage istifadə edirik
+        // API inteqrasiyası - Render-də backend var, GitHub Pages-də yoxdur
         const isGitHubPages = window.location.hostname.includes('github.io');
         const isRender = window.location.hostname.includes('onrender.com');
         const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
         
-        // GitHub Pages və Render-də backend varsa da, localStorage-da da qeyd edək (çox cihaz üçün)
-        // Render-də backend var, amma çox cihazda eyni localStorage üçün localStorage istifadə edirik
-        this.API_BASE_URL = (isGitHubPages || isRender) ? (isRender ? 'https://oyun-yeni.onrender.com/api' : null) : '/api';
-        this.useLocalStorage = isGitHubPages || isRender; // GitHub Pages və Render-də localStorage istifadə et
+        // Render-də backend var, ona görə də backend API istifadə edək (çox cihaz üçün)
+        // GitHub Pages-də backend yoxdur, localStorage istifadə edirik (yalnız o cihazda işləyir)
+        if (isRender) {
+            // Render URL-dən dinamik olaraq al
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+            this.API_BASE_URL = `${protocol}//${host}/api`;
+            this.useLocalStorage = false; // Render-də backend istifadə et
+        } else if (isGitHubPages) {
+            this.API_BASE_URL = null; // GitHub Pages-də backend yoxdur
+            this.useLocalStorage = true; // GitHub Pages-də localStorage istifadə et
+        } else {
+            this.API_BASE_URL = '/api'; // Local server
+            this.useLocalStorage = false;
+        }
         this.userId = null;
         this.gameStartTime = null;
         this.enemiesKilledThisGame = 0;
@@ -707,7 +718,7 @@ class TowerDefenseGame {
                         }).catch(err => console.error('Delete game state error:', err));
                     }
                 }
-            } else if (!this.demoMode && savedState && savedState.success && savedState.is_game_over) {
+            } else if (!this.useLocalStorage && savedState && savedState.success && savedState.is_game_over) {
                 // Game over olubsa, qeydi sil və yenidən başla
                 if (this.API_BASE_URL) {
                     fetch(`${this.API_BASE_URL}/delete-game-state`, {
@@ -5339,7 +5350,7 @@ class TowerDefenseGame {
     
     restartGame() {
         // Oyun vəziyyətini sil
-        if (!this.demoMode && this.userId && this.API_BASE_URL) {
+        if (!this.useLocalStorage && this.userId && this.API_BASE_URL) {
             fetch(`${this.API_BASE_URL}/delete-game-state`, {
                 method: 'POST',
                 headers: {
