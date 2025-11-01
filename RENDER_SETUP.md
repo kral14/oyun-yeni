@@ -48,7 +48,21 @@ FLASK_ENV=production
 PORT=5000
 ```
 
-⚠️ **Qeyd:** `BASE_URL` və `RESET_PASSWORD_URL`-i deployment tamamlandıqdan sonra Render verəcəyi URL ilə əvəz edəcəksiniz (məsələn: `https://oyun-yeni.onrender.com`)
+⚠️ **Qeyd:** `BASE_URL` və `RESET_PASSWORD_URL`-i **İNDİ BOŞ BURAXA BİLƏRSİNİZ**. Deployment tamamlandıqdan sonra Render verəcəyi URL-i biləndə əlavə edəcəksiniz (məsələn: `https://oyun-yeni.onrender.com`)
+
+### İndi Əlavə Edin (Əsas):
+1. DB_HOST
+2. DB_DATABASE  
+3. DB_USER
+4. DB_PASSWORD
+5. SMTP_EMAIL
+6. SMTP_PASSWORD
+7. FLASK_ENV=production
+8. PORT=5000
+
+### Sonra Əlavə Edin (Deployment tamamlandıqdan sonra):
+9. BASE_URL=https://oyun-yeni-xxxx.onrender.com *(Render verəcəyi URL)*
+10. RESET_PASSWORD_URL=https://oyun-yeni-xxxx.onrender.com/reset-password.html *(Render verəcəyi URL)*
 
 ## ✅ Yoxlama:
 
