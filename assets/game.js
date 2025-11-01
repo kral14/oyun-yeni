@@ -676,7 +676,8 @@ class TowerDefenseGame {
         }
         
         // Qeyd yoxlaması - əgər qeyd varsa və game over deyilsə, davam etmək sualı
-        if (this.userId) {
+        // Demo mode-da qeyd yoxlaması skip et
+        if (!this.demoMode && this.userId) {
             const savedState = await this.loadGameState();
             if (savedState && savedState.success && savedState.game_state && !savedState.is_game_over) {
                 const continueGame = confirm('Qaldığınız yerdən davam etmək istəyirsinizmi?');

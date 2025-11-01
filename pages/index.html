@@ -100,7 +100,7 @@
                     }).catch(function(){})
                     .finally(function(){
                         const swPath = 'assets/sw.js?v=' + (window.__BUILD_VERSION__ || Date.now());
-                    navigator.serviceWorker.register(swPath).then(function(reg){
+                        navigator.serviceWorker.register(swPath).then(function(reg){
                             if (reg && reg.update) reg.update();
                         }).catch(function(){});
                     });
