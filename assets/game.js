@@ -32,16 +32,14 @@ class TowerDefenseGame {
         this.plasmaPairingMode = false; // İkinci qülləni birləşdirmək üçün gözləyən zaman true
         this.plasmaPairingTower = null; // Cütləşdirmək üçün seçilmiş ilk qüllə
         
-        // API inteqrasiyası - GitHub Pages və production üçün Render URL-i istifadə et
-        // GitHub Pages-də backend işləmir, ona görə də Render backend URL-ə yönəldirik
+        // API inteqrasiyası - GitHub Pages üçün backend yoxdur, yalnız frontend demo
+        // API çağırışları disable olunur GitHub Pages üçün
         const isGitHubPages = window.location.hostname.includes('github.io');
         const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
         
-        // Environment variable və ya default Render URL
-        this.API_BASE_URL = window.API_BASE_URL || 
-                            (isGitHubPages || isProduction 
-                                ? 'https://oyun-yeni.onrender.com/api' 
-                                : '/api');
+        // GitHub Pages-də backend yoxdur, demo mode aktiv olur
+        this.API_BASE_URL = null; // GitHub Pages üçün API disable
+        this.demoMode = isGitHubPages; // GitHub Pages-də demo mode
         this.userId = null;
         this.gameStartTime = null;
         this.enemiesKilledThisGame = 0;
@@ -4984,6 +4982,13 @@ class TowerDefenseGame {
     
     // Oyun vəziyyətini yadda saxla
     async saveGameState(showMessage = true) {
+        // GitHub Pages-də demo mode: save disable
+        if (this.demoMode) {
+            if (showMessage) {
+                alert('ℹ️ Demo mode: Oyun vəziyyəti qeyd edilmir. Tam funksionallıq üçün backend server lazımdır.');
+            }
+            return;
+        }
         if (!this.userId || this.gameState.gameOver) return;
         
         try {
@@ -5070,6 +5075,9 @@ class TowerDefenseGame {
         if (!this.userId) return null;
         
         try {
+            if (!this.API_BASE_URL) {
+                return null;
+            }
             const response = await fetch(`${this.API_BASE_URL}/load-game-state?user_id=${this.userId}`);
             const data = await response.json();
             

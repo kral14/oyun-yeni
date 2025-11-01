@@ -86,7 +86,8 @@
                         return Promise.all(regs.map(function(r){ return r.unregister(); }));
                     }).catch(function(){})
                     .finally(function(){
-                        navigator.serviceWorker.register('/assets/sw.js?v=' + (window.__BUILD_VERSION__ || Date.now())).then(function(reg){
+                        const swPath = 'assets/sw.js?v=' + (window.__BUILD_VERSION__ || Date.now());
+                    navigator.serviceWorker.register(swPath).then(function(reg){
                             if (reg && reg.update) reg.update();
                         }).catch(function(){});
                     });
