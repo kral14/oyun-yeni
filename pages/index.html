@@ -7,6 +7,19 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <!-- GitHub Pages base path -->
+    <script>
+        (function() {
+            const isGitHubPages = window.location.hostname.includes('github.io');
+            if (isGitHubPages) {
+                const repoName = window.location.pathname.split('/')[1] || 'oyun-yeni';
+                const base = '/' + repoName + '/';
+                const baseTag = document.createElement('base');
+                baseTag.href = base;
+                document.head.insertBefore(baseTag, document.head.firstChild);
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="assets/style.css?v=1">
     <link rel="stylesheet" href="assets/components/profile/profile.css?v=1">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
