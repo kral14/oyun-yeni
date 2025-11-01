@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no">
+    <title>Qeydiyyat - Qüllə Müdafiəsi</title>
+    <link rel="stylesheet" href="/assets/style.css?v=1">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1f25 0%, #0f1419 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .register-container {
+            background: rgba(10, 10, 10, 0.95);
+            border: 2px solid #00bcd4;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.3);
+        }
+        
+        .register-header {
+            text-align: center;
+            color: #00bcd4;
+            margin-bottom: 30px;
+        }
+        
+        .register-header h1 {
+            margin: 0;
+            font-size: 28px;
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        .register-header p {
+            margin: 10px 0 0 0;
+            color: #ccc;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #00bcd4;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #00bcd4;
+            box-shadow: 0 0 10px rgba(0, 188, 212, 0.3);
+        }
+        
+        .register-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(45deg, #00bcd4, #0097a7);
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .register-btn:hover {
+            background: linear-gradient(45deg, #0097a7, #00bcd4);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 188, 212, 0.4);
+        }
+        
+        .register-btn:active {
+            transform: translateY(0);
+        }
+        
+        .error-message {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            border-radius: 6px;
+            padding: 12px;
+            color: #ffcdd2;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 14px;
+        }
+        
+        .error-message.show {
+            display: block;
+        }
+        
+        .success-message {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4caf50;
+            border-radius: 6px;
+            padding: 12px;
+            color: #c8e6c9;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 14px;
+        }
+        
+        .success-message.show {
+            display: block;
+        }
+        
+        .login-link {
+            text-align: center;
+            margin-top: 20px;
+            color: #ccc;
+            font-size: 14px;
+        }
+        
+        .login-link a {
+            color: #00bcd4;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .login-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="register-container">
+        <div class="register-header">
+            <h1>🎮 Qeydiyyat</h1>
+            <p>Yeni hesab yaradın</p>
+        </div>
+        
+        <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message"></div>
+        
+        <form id="registerForm" autocomplete="off" data-lpignore="true" data-password-manager-disabled="true">
+            <div class="form-group">
+                <label for="username">İstifadəçi adı:</label>
+                <input type="text" id="username" name="username" required autocomplete="username" placeholder="Minimum 3 simvol" minlength="3">
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email ünvanı:</label>
+                <input type="email" id="email" name="email" required autocomplete="email" placeholder="example@mail.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="phone_number">Telefon nömrəsi:</label>
+                <input type="tel" id="phone_number" name="phone_number" required autocomplete="tel" placeholder="+994 XX XXX XX XX" minlength="8">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Şifrə:</label>
+                <input type="password" id="password" name="password" required autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" placeholder="Minimum 4 simvol" minlength="4">
+            </div>
+            
+            <div class="form-group">
+                <label for="confirm_password">Şifrəni təsdiq edin:</label>
+                <input type="password" id="confirm_password" name="confirm_password" required autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" placeholder="Şifrəni təkrar daxil edin" minlength="4">
+            </div>
+            
+            <button type="submit" class="register-btn">Qeydiyyatdan keç</button>
+        </form>
+        
+        <div class="login-link">
+            Artıq hesabınız var? <a href="login.html">Giriş edin</a>
+        </div>
+    </div>
+    
+    <script>
+        // API base URL (relative path - same server)
+        const API_BASE_URL = '/api';
+        
+        // Check if already logged in
+        if (localStorage.getItem('towerDefenseLoggedIn') === 'true') {
+            window.location.href = 'index.html';
+        }
+        
+        const registerForm = document.getElementById('registerForm');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('show');
+            successMessage.classList.remove('show');
+            setTimeout(() => {
+                errorMessage.classList.remove('show');
+            }, 5000);
+        }
+        
+        function showSuccess(message) {
+            successMessage.textContent = message;
+            successMessage.classList.add('show');
+            errorMessage.classList.remove('show');
+        }
+        
+        function showLoading(loading) {
+            const btn = registerForm.querySelector('button[type="submit"]');
+            if (loading) {
+                btn.disabled = true;
+                btn.textContent = 'Yüklənir...';
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Qeydiyyatdan keç';
+            }
+        }
+        
+        async function register(username, email, phone_number, password) {
+            try {
+                showLoading(true);
+                
+                const response = await fetch(`${API_BASE_URL}/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, email, phone_number, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess('✅ Qeydiyyat uğurla tamamlandı! Giriş səhifəsinə yönləndirilirsiniz...');
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 2000);
+                } else {
+                    showError(`❌ ${data.error || 'Qeydiyyat zamanı xəta baş verdi'}`);
+                    showLoading(false);
+                }
+            } catch (error) {
+                console.error('Register error:', error);
+                showError('❌ Serverlə əlaqə qurmaq mümkün olmadı. API server işləyir?');
+                showLoading(false);
+            }
+        }
+        
+        // Handle register form submission
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('email').value.trim().toLowerCase();
+            const phone_number = document.getElementById('phone_number').value.trim();
+            const password = document.getElementById('password').value;
+            const confirm_password = document.getElementById('confirm_password').value;
+            
+            // Validation
+            if (!username || username.length < 3) {
+                showError('❌ İstifadəçi adı ən azı 3 simvol olmalıdır!');
+                return;
+            }
+            
+            if (!email || !email.includes('@')) {
+                showError('❌ Etibarlı email ünvanı daxil edin!');
+                return;
+            }
+            
+            if (!phone_number || phone_number.length < 8) {
+                showError('❌ Etibarlı telefon nömrəsi daxil edin!');
+                return;
+            }
+            
+            if (!password || password.length < 4) {
+                showError('❌ Şifrə ən azı 4 simvol olmalıdır!');
+                return;
+            }
+            
+            if (password !== confirm_password) {
+                showError('❌ Şifrələr uyğun gəlmir!');
+                return;
+            }
+            
+            await register(username, email, phone_number, password);
+        });
+    </script>
+</body>
+</html>
+

@@ -7,9 +7,10 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="style.css?v=1">
-    <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="/assets/style.css?v=1">
+    <link rel="stylesheet" href="/assets/components/profile/profile.css?v=1">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/assets/manifest.webmanifest">
     <meta name="theme-color" content="#0a84ff">
     <meta name="mobile-web-app-capable" content="yes">
     <script>
@@ -55,9 +56,14 @@
                 // Inject versioned game.js before closing head
                 var head = document.getElementsByTagName('head')[0];
                 var s = document.createElement('script');
-                s.src = 'game.js?v=' + v;
+                s.src = '/assets/game.js?v=' + v;
                 s.defer = false;
                 head.appendChild(s);
+                // Profil JavaScript
+                var profileScript = document.createElement('script');
+                profileScript.src = '/assets/components/profile/profile.js?v=' + v;
+                profileScript.defer = false;
+                head.appendChild(profileScript);
                 // Prevent duplicate base script later
                 window.__INJECTED_VERSIONED_SCRIPT__ = true;
                 window.__BUILD_VERSION__ = v;
@@ -80,7 +86,7 @@
                         return Promise.all(regs.map(function(r){ return r.unregister(); }));
                     }).catch(function(){})
                     .finally(function(){
-                        navigator.serviceWorker.register('sw.js?v=' + (window.__BUILD_VERSION__ || Date.now())).then(function(reg){
+                        navigator.serviceWorker.register('/assets/sw.js?v=' + (window.__BUILD_VERSION__ || Date.now())).then(function(reg){
                             if (reg && reg.update) reg.update();
                         }).catch(function(){});
                     });
@@ -127,6 +133,22 @@
                     <span id="enemyCount">0</span>
                 </div>
                 <button id="toggleShop" class="toggle-shop">Qüllə Mağazası</button>
+            </div>
+            <div class="profile-section">
+                <div class="profile-info">
+                    <span class="profile-icon">👤</span>
+                    <span id="profileUsername" class="profile-username">İstifadəçi</span>
+                </div>
+                <div class="profile-dropdown" id="profileDropdown">
+                    <div class="profile-dropdown-content">
+                        <div class="profile-menu-item" id="editProfileBtn">
+                            <span>Profili Düzəlt</span>
+                        </div>
+                        <div class="profile-menu-item" id="logoutBtn">
+                            <span>Çıxış</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -275,6 +297,30 @@
                         </div>
                         <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Fasilə</button>
                         <button id="restartGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Yenidən başlat</button>
+                        <button id="saveGameState" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049);">💾 Oyunu Qeyd Et</button>
+                        
+                        <!-- Avtomatik Can Yeniləmə Bölməsi -->
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <button id="globalAutoHealToggle" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4a90e2, #357abd);">🔄 Avto Can Yeniləmə</button>
+                                
+                                <!-- Qüllə Seçim Paneli (gizli) -->
+                                <div id="globalAutoHealPanel" style="display: none; flex-direction: column; gap: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; max-height: 300px; overflow-y: auto;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                        <input type="number" id="globalAutoHealThreshold" min="1" max="100" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
+                                        <label style="color: #fff; font-size: 12px;">Can Dəyəri (1-100)</label>
+                                    </div>
+                                    <div id="globalAutoHealTowersList" style="display: flex; flex-direction: column; gap: 6px;">
+                                        <!-- Qüllələr buraya dinamik olaraq əlavə olunacaq -->
+                                    </div>
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <button id="globalAutoHealSelectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Hamısını Seç</button>
+                                        <button id="globalAutoHealDeselectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Seçimi Ləğv Et</button>
+                                    </div>
+                                    <button id="globalAutoHealConfirm" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4CAF50, #45a049);">✓ Təsdiqlə və Aktiv Et</button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="speed-controls" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
                             <label style="color: #fff; font-size: 13px;">Sürət:</label>
                             <button id="speed1" class="speed-btn" style="flex: 1; padding: 8px;">1x</button>
@@ -338,8 +384,21 @@
             <div style="display:flex; gap:8px;">
                 <button class="ctx-btn" id="ctxHeal">🩹 $20</button>
             </div>
+            <div style="display:flex; flex-direction:column; gap:4px; padding:6px; background:rgba(255,255,255,0.05); border-radius:4px;">
+                <div style="display:flex; gap:4px; align-items:center;">
+                    <button class="ctx-btn" id="ctxAutoHealToggle" style="flex:1;">🔄 Avto Can: Kapalı</button>
+                </div>
+                <div id="ctxAutoHealSettings" style="display:none; gap:4px; align-items:center; flex-direction:row;">
+                    <input type="number" id="ctxAutoHealThreshold" min="1" max="100" value="5" style="width:60px; padding:4px; background:rgba(0,0,0,0.5); border:1px solid #00bcd4; border-radius:4px; color:#fff; font-size:12px;" />
+                    <button class="ctx-btn" id="ctxAutoHealConfirm" style="flex:1; padding:4px; font-size:11px;">✓ Təsdiq</button>
+                </div>
+            </div>
             <button class="ctx-btn" id="ctxAwaken">🌈 (💎20)</button>
             <button class="ctx-btn" id="ctxShield">🛡️ (💎50)</button>
+            <div style="display:flex; gap:8px;">
+                <button class="ctx-btn" id="ctxPlasmaActivate" style="display:none;">⚡ Plazma Aktiv</button>
+                <button class="ctx-btn" id="ctxPlasmaDeactivate" style="display:none;">⚡ Plazma Söndür</button>
+            </div>
             <div style="display:flex; gap:8px;">
                 <button class="ctx-btn" id="ctxSell">🪙</button>
             </div>
@@ -347,12 +406,22 @@
     </div>
     
     <script>
+        // Check login status
+        (function(){
+            const loggedIn = localStorage.getItem('towerDefenseLoggedIn');
+            const userId = localStorage.getItem('towerDefenseUserId');
+            if (loggedIn !== 'true' || !userId) {
+                window.location.href = 'login.html';
+                return;
+            }
+        })();
+        
         // If dynamic loader failed for any reason, fallback to versioned include
         (function(){
             if (!window.__INJECTED_VERSIONED_SCRIPT__) {
                 var v = window.__BUILD_VERSION__ || Date.now().toString();
                 var s = document.createElement('script');
-                s.src = 'game.js?v=' + v;
+                s.src = '/assets/game.js?v=' + v;
                 document.body.appendChild(s);
             }
         })();
@@ -380,6 +449,8 @@
                 });
             });
         })();
+        
+        // Profile section - ayrı faylda (assets/js/profile.js)
     </script>
 </body>
 </html>

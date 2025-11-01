@@ -1,0 +1,100 @@
+/* Profil bölməsi stilləri */
+
+.profile-section {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-right: 20px;
+}
+
+.profile-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.profile-info:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(74, 144, 226, 0.5);
+}
+
+.profile-icon {
+    font-size: 1.2em;
+}
+
+.profile-username {
+    font-size: 0.95em;
+    color: #fff;
+    font-weight: 500;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%) translateY(-10px);
+    margin-top: 8px;
+    min-width: 180px;
+    background: rgba(0, 0, 0, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    z-index: 10000;
+}
+
+.profile-dropdown.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.profile-dropdown-content {
+    padding: 8px;
+}
+
+.profile-menu-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #fff;
+    font-size: 0.95em;
+    text-align: left;
+    width: 100%;
+}
+
+.profile-menu-item:hover {
+    background: rgba(74, 144, 226, 0.3);
+    color: #9cc9ff;
+}
+
+.profile-menu-item span {
+    display: block;
+}
+
+/* Mobil responsive */
+@media (max-width: 900px) {
+    .profile-username {
+        display: none;
+    }
+    
+    .profile-info {
+        padding: 8px 12px;
+    }
+}
+

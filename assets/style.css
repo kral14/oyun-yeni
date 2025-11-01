@@ -27,6 +27,7 @@ body {
     justify-content: space-between;
     align-items: center;
     border-bottom: 2px solid #4a90e2;
+    position: relative;
 }
 
 .game-header h1 {
@@ -37,6 +38,8 @@ body {
 .game-stats {
     display: flex;
     gap: 30px;
+    flex: 1;
+    justify-content: flex-start;
 }
 
 .stat {
@@ -607,15 +610,16 @@ body {
     border-color: #0056b3;
 }
 
-/* Fixed size - no responsive scaling */
+/* Responsive game area - adapts to screen size */
 .game-area {
     display: grid;
-    grid-template-columns: 1fr; /* only canvas; shop overlays */
+    grid-template-columns: 1fr; /* yalnız canvas; shop overlay olaraq */
     gap: 10px;
     padding: 10px;
     justify-content: center;
     align-items: start;
-    max-width: 1280px;
+    width: 100%;
+    max-width: 100%;
     margin: 0 auto;
 }
 
@@ -751,6 +755,8 @@ body {
     .tower-name { font-size: 13px; }
     .tower-cost { font-size: 11px; }
 }
+
+/* Profile Section Styles - ayrı faylda (assets/css/profile.css) */
 
 /* Portrait mobil: Tower Shop üfüqi (yatay) sürüşsün */
 @media (max-width: 900px) and (orientation: portrait) {
