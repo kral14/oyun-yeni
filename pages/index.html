@@ -146,7 +146,9 @@
                     <span class="stat-label">Düşmənlər:</span>
                     <span id="enemyCount">0</span>
                 </div>
-                <button id="toggleShop" class="toggle-shop">Qüllə Mağazası</button>
+                <div class="stat toggle-shop-stat" title="Qüllə Mağazası">
+                    <button id="toggleShop" class="toggle-shop">🏪</button>
+                </div>
             </div>
             <div class="profile-section">
                 <div class="profile-info">
@@ -173,15 +175,57 @@
                 <div id="labelH" class="size-label size-label-h">h: 720</div>
             </div>
             
-            <div class="tower-shop">
-                <h3>Qüllə Mağazası</h3>
+            <div class="tower-shop hidden">
                 <div class="shop-tabs">
-                    <button class="shop-tab" data-tab="tab-controls">İdarətmələr</button>
-                    <button class="shop-tab active" data-tab="tab-towers">Qüllələr</button>
+                    <button class="shop-tab active" data-tab="tab-controls">İdarətmələr</button>
+                    <button class="shop-tab" data-tab="tab-towers">Qüllələr</button>
                     <button class="shop-tab" data-tab="tab-special">Xüsusi</button>
                 </div>
+                
+                <div class="shop-content-wrapper">
+                <div class="shop-tab-content active" id="tab-controls">
+                    <div class="game-controls" style="display: flex; flex-direction: column; gap: 12px; padding: 15px;">
+                        <button id="startWave" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Dalğanı Başlat</button>
+                        <div class="auto-start-container" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                            <input type="checkbox" id="autoStart" />
+                            <label for="autoStart" style="color: #fff; cursor: pointer;">Avtomatik Başlat</label>
+                        </div>
+                        <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Fasilə</button>
+                        <button id="restartGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Yenidən başlat</button>
+                        <button id="saveGameState" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049);">💾 Oyunu Qeyd Et</button>
+                        
+                        <!-- Avtomatik Can Yeniləmə Bölməsi -->
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <button id="globalAutoHealToggle" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4a90e2, #357abd);">🔄 Avto Can Yeniləmə</button>
+                                
+                                <!-- Qüllə Seçim Paneli (gizli) -->
+                                <div id="globalAutoHealPanel" style="display: none; flex-direction: column; gap: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; max-height: 300px; overflow-y: auto;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                        <input type="number" id="globalAutoHealThreshold" min="1" max="100" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
+                                        <label style="color: #fff; font-size: 12px;">Can Dəyəri (1-100)</label>
+                                    </div>
+                                    <div id="globalAutoHealTowersList" style="display: flex; flex-direction: column; gap: 6px;">
+                                        <!-- Qüllələr buraya dinamik olaraq əlavə olunacaq -->
+                                    </div>
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <button id="globalAutoHealSelectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Hamısını Seç</button>
+                                        <button id="globalAutoHealDeselectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Seçimi Ləğv Et</button>
+                                    </div>
+                                    <button id="globalAutoHealConfirm" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4CAF50, #45a049);">✓ Təsdiqlə və Aktiv Et</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="speed-controls" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                            <label style="color: #fff; font-size: 13px;">Sürət:</label>
+                            <button id="speed1" class="speed-btn" style="flex: 1; padding: 8px;">1x</button>
+                            <button id="speed2" class="speed-btn" style="flex: 1; padding: 8px;">2x</button>
+                            <button id="speed3" class="speed-btn" style="flex: 1; padding: 8px;">3x</button>
+                        </div>
+                    </div>
+                </div>
 
-                <div class="shop-tab-content active" id="tab-towers">
+                <div class="shop-tab-content" id="tab-towers">
                     <div class="tower-options" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; padding: 20px;">
                         <div class="tower-option" data-tower="basic" data-damage="20" data-firerate="1000" data-cost="$50">
                             <div class="tower-icon basic-tower"></div>
@@ -302,47 +346,6 @@
                     </div>
                 </div>
 
-                <div class="shop-tab-content" id="tab-controls">
-                    <div class="game-controls" style="display: flex; flex-direction: column; gap: 12px; padding: 15px;">
-                        <button id="startWave" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Dalğanı Başlat</button>
-                        <div class="auto-start-container" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-                            <input type="checkbox" id="autoStart" />
-                            <label for="autoStart" style="color: #fff; cursor: pointer;">Avtomatik Başlat</label>
-                        </div>
-                        <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Fasilə</button>
-                        <button id="restartGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Yenidən başlat</button>
-                        <button id="saveGameState" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049);">💾 Oyunu Qeyd Et</button>
-                        
-                        <!-- Avtomatik Can Yeniləmə Bölməsi -->
-                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
-                            <div style="display: flex; flex-direction: column; gap: 8px;">
-                                <button id="globalAutoHealToggle" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4a90e2, #357abd);">🔄 Avto Can Yeniləmə</button>
-                                
-                                <!-- Qüllə Seçim Paneli (gizli) -->
-                                <div id="globalAutoHealPanel" style="display: none; flex-direction: column; gap: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; max-height: 300px; overflow-y: auto;">
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                        <input type="number" id="globalAutoHealThreshold" min="1" max="100" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
-                                        <label style="color: #fff; font-size: 12px;">Can Dəyəri (1-100)</label>
-                                    </div>
-                                    <div id="globalAutoHealTowersList" style="display: flex; flex-direction: column; gap: 6px;">
-                                        <!-- Qüllələr buraya dinamik olaraq əlavə olunacaq -->
-                                    </div>
-                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                                        <button id="globalAutoHealSelectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Hamısını Seç</button>
-                                        <button id="globalAutoHealDeselectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Seçimi Ləğv Et</button>
-                                    </div>
-                                    <button id="globalAutoHealConfirm" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4CAF50, #45a049);">✓ Təsdiqlə və Aktiv Et</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="speed-controls" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-                            <label style="color: #fff; font-size: 13px;">Sürət:</label>
-                            <button id="speed1" class="speed-btn" style="flex: 1; padding: 8px;">1x</button>
-                            <button id="speed2" class="speed-btn" style="flex: 1; padding: 8px;">2x</button>
-                            <button id="speed3" class="speed-btn" style="flex: 1; padding: 8px;">3x</button>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="shop-tab-content" id="tab-special">
                     <div class="shop-placeholder" style="margin-bottom:8px">Oyun Taxtası (ölçü): <span id="boardDims">9×15</span> — 💎 <span id="shopDiamonds">0</span></div>
@@ -375,6 +378,7 @@
                         </div>
                         <div id="giftCodeMessage" style="font-size: 11px; color: #a0a0a0; text-align: center; margin-top: 10px; min-height: 16px; padding: 5px;"></div>
                     </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -453,8 +457,20 @@
             const shop = document.querySelector('.tower-shop');
             const btn = document.getElementById('toggleShop');
             if (shop && btn) {
+                // Səhifə yüklənəndə mağaza bağlı olmalıdır (default hidden)
+                // localStorage-dan vəziyyəti yoxla (yoxdursa hidden qal)
+                const savedShopState = localStorage.getItem('towerDefenseShopOpen');
+                if (savedShopState === 'true') {
+                    shop.classList.remove('hidden');
+                } else {
+                    shop.classList.add('hidden');
+                }
+                
+                // Toggle düyməsinə klik edildikdə vəziyyəti saxla
                 btn.addEventListener('click', function(){
                     shop.classList.toggle('hidden');
+                    const isOpen = !shop.classList.contains('hidden');
+                    localStorage.setItem('towerDefenseShopOpen', isOpen.toString());
                 });
             }
             const tabs = document.querySelectorAll('.shop-tab');
