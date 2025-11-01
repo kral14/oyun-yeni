@@ -694,7 +694,8 @@ class TowerDefenseGame {
                     return;
                 } else {
                     // Qeydi sil
-                    fetch(`${this.API_BASE_URL}/delete-game-state`, {
+                    if (this.API_BASE_URL) {
+                        fetch(`${this.API_BASE_URL}/delete-game-state`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -4665,6 +4666,10 @@ class TowerDefenseGame {
         
         try {
             const gameDuration = this.gameStartTime ? Math.floor((Date.now() - this.gameStartTime) / 1000) : 0;
+            
+            if (!this.API_BASE_URL) {
+                return; // Demo mode: skip API call
+            }
             
             const response = await fetch(`${this.API_BASE_URL}/save-game`, {
                 method: 'POST',
