@@ -2,6 +2,23 @@
 
 Bu oyunu production mühitinə deploy etmək üçün təlimatlar.
 
+## 🤖 GitHub Actions ilə Avtomatik Deploy
+
+GitHub Actions istifadə edərək avtomatik deploy üçün:
+
+1. GitHub repository-də **Settings → Secrets → Actions** bölməsinə keçin
+2. Aşağıdakı secrets əlavə edin:
+   - `HEROKU_API_KEY` - Heroku API key
+   - `HEROKU_APP_NAME` - Heroku app adı
+   - `HEROKU_EMAIL` - Heroku email
+3. Heroku-da environment variables təyin edin:
+   - `DB_HOST`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`
+   - `SMTP_EMAIL`, `SMTP_PASSWORD`
+   - `BASE_URL`, `RESET_PASSWORD_URL`
+   - `FLASK_ENV=production`
+
+Hər `main` branch-ə push zamanı avtomatik deploy ediləcək.
+
 ## 📋 Tələblər
 
 - Python 3.11+
