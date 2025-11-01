@@ -3,6 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,10 +24,25 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Prepare files for GitHub Pages
+        run: |
+          # GitHub Pages üçün pages/ və assets/ qovluqlarını root-a kopyala
+          mkdir -p _site
+          cp -r pages/* _site/ || true
+          cp -r assets _site/ || true
+          # index.html-i root-a kopyala
+          cp pages/index.html _site/index.html || true
+          # Login səhifəsini root-a da kopyala
+          cp pages/login.html _site/login.html || true
+          # README və docs əlavə et
+          cp README.md _site/ || true
+          mkdir -p _site/docs
+          cp -r docs/* _site/docs/ || true
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
   deploy:
     needs: build
@@ -38,5 +54,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-

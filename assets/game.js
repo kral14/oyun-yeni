@@ -32,8 +32,16 @@ class TowerDefenseGame {
         this.plasmaPairingMode = false; // İkinci qülləni birləşdirmək üçün gözləyən zaman true
         this.plasmaPairingTower = null; // Cütləşdirmək üçün seçilmiş ilk qüllə
         
-        // API inteqrasiyası (relative path - eyni server)
-        this.API_BASE_URL = '/api';
+        // API inteqrasiyası - GitHub Pages və production üçün Render URL-i istifadə et
+        // GitHub Pages-də backend işləmir, ona görə də Render backend URL-ə yönəldirik
+        const isGitHubPages = window.location.hostname.includes('github.io');
+        const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+        
+        // Environment variable və ya default Render URL
+        this.API_BASE_URL = window.API_BASE_URL || 
+                            (isGitHubPages || isProduction 
+                                ? 'https://oyun-yeni.onrender.com/api' 
+                                : '/api');
         this.userId = null;
         this.gameStartTime = null;
         this.enemiesKilledThisGame = 0;
