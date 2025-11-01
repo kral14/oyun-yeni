@@ -56,12 +56,12 @@
                 // Inject versioned game.js before closing head
                 var head = document.getElementsByTagName('head')[0];
                 var s = document.createElement('script');
-                s.src = '/assets/game.js?v=' + v;
+                s.src = 'assets/game.js?v=' + v;
                 s.defer = false;
                 head.appendChild(s);
                 // Profil JavaScript
                 var profileScript = document.createElement('script');
-                profileScript.src = '/assets/components/profile/profile.js?v=' + v;
+                profileScript.src = 'assets/components/profile/profile.js?v=' + v;
                 profileScript.defer = false;
                 head.appendChild(profileScript);
                 // Prevent duplicate base script later
@@ -421,7 +421,7 @@
             if (!window.__INJECTED_VERSIONED_SCRIPT__) {
                 var v = window.__BUILD_VERSION__ || Date.now().toString();
                 var s = document.createElement('script');
-                s.src = '/assets/game.js?v=' + v;
+                s.src = 'assets/game.js?v=' + v;
                 document.body.appendChild(s);
             }
         })();
