@@ -6,18 +6,44 @@ Bu oyunu production mühitinə deploy etmək üçün təlimatlar.
 
 GitHub Actions istifadə edərək avtomatik deploy üçün:
 
-1. GitHub repository-də **Settings → Secrets → Actions** bölməsinə keçin
-2. Aşağıdakı secrets əlavə edin:
-   - `HEROKU_API_KEY` - Heroku API key
-   - `HEROKU_APP_NAME` - Heroku app adı
-   - `HEROKU_EMAIL` - Heroku email
-3. Heroku-da environment variables təyin edin:
-   - `DB_HOST`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`
-   - `SMTP_EMAIL`, `SMTP_PASSWORD`
-   - `BASE_URL`, `RESET_PASSWORD_URL`
-   - `FLASK_ENV=production`
+### Adım 1: GitHub Secrets Əlavə Edin
 
-Hər `main` branch-ə push zamanı avtomatik deploy ediləcək.
+1. GitHub repository-də **Settings → Secrets and variables → Actions** bölməsinə keçin
+2. Aşağıdakı secrets əlavə edin:
+   - `HEROKU_API_KEY` - Heroku API key (https://dashboard.heroku.com/account → API Key)
+   - `HEROKU_APP_NAME` - Heroku app adı (məsələn: `oyun-yeni`)
+   - `HEROKU_EMAIL` - Heroku hesab email ünvanı
+
+### Adım 2: Heroku App Yaradın
+
+**Yol 1: Script istifadə edin:**
+```powershell
+cd scripts
+.\setup_deployment.ps1
+```
+
+**Yol 2: Manual:**
+```bash
+heroku create oyun-yeni
+heroku config:set DB_HOST=ep-sparkling-grass-a4c444kf-pooler.us-east-1.aws.neon.tech --app oyun-yeni
+heroku config:set DB_DATABASE=neondb --app oyun-yeni
+heroku config:set DB_USER=neondb_owner --app oyun-yeni
+heroku config:set DB_PASSWORD=npg_SxvR6sZIK9yi --app oyun-yeni
+heroku config:set SMTP_EMAIL=neondefendergame@gmail.com --app oyun-yeni
+heroku config:set SMTP_PASSWORD=ugcfkjvlsphlfxar --app oyun-yeni
+heroku config:set BASE_URL=https://oyun-yeni.herokuapp.com --app oyun-yeni
+heroku config:set RESET_PASSWORD_URL=https://oyun-yeni.herokuapp.com/reset-password.html --app oyun-yeni
+heroku config:set FLASK_ENV=production --app oyun-yeni
+```
+
+**Yol 3: Heroku Dashboard:**
+1. https://dashboard.heroku.com/apps → **New** → **Create new app**
+2. App name: `oyun-yeni`
+3. **Settings** → **Config Vars** → Environment variables əlavə edin
+
+### Adım 3: Avtomatik Deploy
+
+Hər `main` branch-ə push zamanı avtomatik deploy ediləcək!
 
 ## 📋 Tələblər
 
