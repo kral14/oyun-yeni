@@ -3935,6 +3935,9 @@ class TowerDefenseGame {
         if (pauseBtn) pauseBtn.style.display = 'none';
         if (resumeBtn) resumeBtn.style.display = 'block';
         
+        // Sətir və sütun artırma düymələrini aktivləşdir (updateUI çağırılır)
+        this.updateUI();
+        
         this.showTooltip('⏸️ Oyun dayandırıldı', 'info', 2000);
     }
     
@@ -3958,6 +3961,9 @@ class TowerDefenseGame {
         const resumeBtn = document.getElementById('resumeGame');
         if (pauseBtn) pauseBtn.style.display = 'block';
         if (resumeBtn) resumeBtn.style.display = 'none';
+        
+        // Sətir və sütun artırma düymələrini yenilə (updateUI çağırılır)
+        this.updateUI();
         
         this.showTooltip('▶️ Oyun davam edir', 'success', 2000);
     }
@@ -6665,13 +6671,18 @@ class TowerDefenseGame {
         if (costRowsEl) costRowsEl.textContent = String(rowsCost);
         if (costColEl) costColEl.textContent = String(colCost);
         // İlk dalğa başlamazdan əvvəl redaktəyə icazə ver
-        const canEdit = !this.waveInProgress && this.enemies.length === 0 && this.gameState.wave <= 1;
+        // Oyun fasilə rejimində və ya dalğa başlamamışsa redaktə etmək olar
+        const canEdit = this.isPaused || (!this.waveInProgress && this.enemies.length === 0 && this.gameState.wave <= 1);
         if (buyRowsBtn) buyRowsBtn.disabled = !(canEdit && this.diamonds >= rowsCost && this.rows + 2 <= this.maxRows);
         if (buyColBtn) buyColBtn.disabled = !(canEdit && this.diamonds >= colCost && this.cols + 1 <= this.maxCols);
         // Məlumat mesajını yenilə
         const infoMsg = document.querySelector('#tab-special .shop-placeholder:last-child');
         if (infoMsg) {
-            infoMsg.textContent = 'Dalğa başlamadan əvvəl istifadə edin.';
+            if (this.isPaused) {
+                infoMsg.textContent = 'Oyun fasilə rejimindədir. Sətir və sütun artıra bilərsiniz.';
+            } else {
+                infoMsg.textContent = 'Dalğa başlamadan əvvəl istifadə edin.';
+            }
         }
     }
     
