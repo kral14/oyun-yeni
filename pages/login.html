@@ -221,11 +221,22 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    // Login successful
+                    // Login successful - ÖNCEKI CİHAZDAN VERİLƏRİ TEMİZLƏ (başqa cihazdan giriş)
+                    // localStorage'dan oyun verilərini sil (veritabanından yüklənəcək)
+                    localStorage.removeItem('towerDefenseGameState');
+                    localStorage.removeItem('towerDefenseGameStateTime');
+                    localStorage.removeItem('towerDefenseDiamonds');
+                    localStorage.removeItem('towerDefenseStars');
+                    localStorage.removeItem('towerDefenseShopUpgrades');
+                    
+                    // Sadece kullanıcı bilgilerini kaydet (veritabanı ana kaynak)
                     localStorage.setItem('towerDefenseLoggedIn', 'true');
                     localStorage.setItem('towerDefenseUserId', data.user.id);
                     localStorage.setItem('towerDefenseUsername', data.user.username);
                     localStorage.setItem('towerDefenseUserStats', JSON.stringify(data.stats));
+                    
+                    // Elmas və yıldızları LOCALSTORAGE'A YAZMA - veritabanı ana kaynak
+                    // Oyun başlayanda API-dən yüklənəcək (game.js init() fonksiyonu)
                     
                     // Redirect to game
                     window.location.href = 'index.html';

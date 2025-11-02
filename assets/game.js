@@ -17,7 +17,6 @@ class TowerDefenseGame {
             money: 500,
             wave: 1,
             score: 0,
-            isPaused: false,
             gameOver: false
         };
         
@@ -31,6 +30,9 @@ class TowerDefenseGame {
         this.selectedTowerType = 'basic';
         this.plasmaPairingMode = false; // İkinci qülləni birləşdirmək üçün gözləyən zaman true
         this.plasmaPairingTower = null; // Cütləşdirmək üçün seçilmiş ilk qüllə
+        this.hoveredEnemy = null; // Mouse hover edilmiş düşman
+        this.mouseX = 0; // Mouse X pozisiyası
+        this.mouseY = 0; // Mouse Y pozisiyası
         
         // API inteqrasiyası - Render-də backend var, GitHub Pages-də yoxdur
         const isGitHubPages = window.location.hostname.includes('github.io');
@@ -52,9 +54,36 @@ class TowerDefenseGame {
             this.API_BASE_URL = '/api'; // Local server
             this.useLocalStorage = false;
         }
+        
+        // Online/Offline detection - bağlantı statusunu yoxla
+        this.isOnline = navigator.onLine;
+        this.hasOfflineData = false; // localStorage'da offline veri var mı?
+        
+        // Online/offline event listener-ləri əlavə et
+        window.addEventListener('online', () => {
+            this.debugLog('🌐 Bağlantı bərpa olundu (online)');
+            this.isOnline = true;
+            this.syncOfflineDataToAPI(); // Offline veriləri API-yə göndər
+        });
+        
+        window.addEventListener('offline', () => {
+            this.debugLog('⚠️ Bağlantı kəsildi (offline)');
+            this.isOnline = false;
+            this.showTooltip('⚠️ Bağlantı hatası: Oyun durumu locale yazılıyor', 'warning');
+        });
+        
         this.userId = null;
         this.gameStartTime = null;
         this.enemiesKilledThisGame = 0;
+        
+        // Pause sistemi
+        this.isPaused = false;
+        this.pauseStartTime = null;
+        this.totalPausedTime = 0; // Toplam pause müddəti (ms)
+        
+        // Confirm mesajının iki dəfə göstərilməsinin qarşısını almaq
+        this.confirmShown = false;
+        this.initInProgress = false; // init() funksiyasının iki dəfə çağırılmasının qarşısını almaq
         
         // Global auto-heal settings - hansi qüllə tipləri üçün aktivdir və threshold
         // Format: { towerType: { enabled: true, threshold: 10 }, ... }
@@ -132,12 +161,9 @@ class TowerDefenseGame {
         this.maxRows = 27; // maksimum grid ölçüsü
         this.expansionCost = 100; // grid genişləndirmə qiyməti
         this.expansionDiamonds = 5; // grid genişləndirmək üçün lazım olan almazlar
-        // Default almazlar: ən azı 500
-        this.diamonds = parseInt(localStorage.getItem('towerDefenseDiamonds') || '500');
-        if (!Number.isFinite(this.diamonds) || this.diamonds < 500) {
-            this.diamonds = 500;
-            localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
-        }
+        // Default almazlar: ən azı 500 (API-dən yüklənəcək, əgər API yoxdursa localStorage istifadə ediləcək)
+        this.diamonds = 500;
+        this.stars = 100;
         
         // Mağaza qüllələrinin yüksəltmələri (yalnız pul ilə alınan qüllələr üçün)
         const savedUpgrades = localStorage.getItem('towerDefenseShopUpgrades');
@@ -151,19 +177,8 @@ class TowerDefenseGame {
             this.towerShopUpgrades = { basic: { damage: 0, fireRate: 0 }, rapid: { damage: 0, fireRate: 0 }, heavy: { damage: 0, fireRate: 0 } };
         }
         
-        // Ulduz sistemi (yenidən başlatmalar arasında davamlı)
-        const savedStars = localStorage.getItem('towerDefenseStars');
-        if (savedStars === null || savedStars === '0') {
-            // İlk dəfə və ya sıfır olduqda, başlanğıc ulduz ver: 100
-            this.stars = 100;
-            localStorage.setItem('towerDefenseStars', this.stars.toString());
-        } else {
-            this.stars = parseInt(savedStars);
-            if (!Number.isFinite(this.stars) || this.stars < 0) {
-                this.stars = 100;
-                localStorage.setItem('towerDefenseStars', this.stars.toString());
-            }
-        }
+        // Elmas və yıldızları yüklə (API-dən və ya localStorage-dan)
+        this.loadCurrency();
         
         // Aktiv edilmiş hədiyyə kodları (yenidən istifadəni qadağan et)
         this.redeemedCodes = JSON.parse(localStorage.getItem('towerDefenseRedeemedCodes') || '[]');
@@ -356,8 +371,7 @@ class TowerDefenseGame {
         
         if (this.cols < this.maxCols || this.rows < this.maxRows) {
             if (this.diamonds >= this.expansionDiamonds) {
-                this.diamonds -= this.expansionDiamonds;
-                localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+                this.changeCurrency(-this.expansionDiamonds, 0);
                 
                 // Expand grid only on the right and bottom edges
                 if (this.cols < this.maxCols) this.cols += 4;
@@ -428,8 +442,21 @@ class TowerDefenseGame {
             // Update tower position
             tower.x = newX;
             tower.y = newY;
-            // Recompute range to match new scale
-            tower.range = this.getTowerRange(tower.type);
+            // Range-ini yenidən hesablama - yalnız grid ölçüsü dəyişibsə lazımdır
+            // Amma rangeUp yüksəltmələrini saxlamaq lazımdır
+            // Əgər rangeUp varsa, onu tətbiq et
+            const baseRange = this.getTowerRange(tower.type);
+            if (tower.rangeUp && tower.rangeUp > 0) {
+                // rangeUp yüksəltmələrini tətbiq et (hər yüksəltmə 1.15x artırır)
+                let finalRange = baseRange;
+                for (let i = 0; i < tower.rangeUp; i++) {
+                    finalRange = Math.floor(finalRange * 1.15);
+                }
+                tower.range = finalRange;
+            } else {
+                // rangeUp yoxdursa, base range istifadə et
+                tower.range = baseRange;
+            }
         }
         
         this.debugLog(`✅ ${this.towers.length} qüllənin mövqeyi yeniləndi`);
@@ -507,14 +534,14 @@ class TowerDefenseGame {
     // Special tab: +2 rows (top+bottom) purchase with diamonds
     buyRows() {
         const cost = 5;
-        // Allow during pause regardless of wave/enemies; otherwise restrict
-        if (!this.gameState.isPaused && (this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1)) {
+        // Restrict during wave/enemies
+        if (this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1) {
             this.debugWarning('Sətir alma yalnız oyun başlamadan mümkündür.');
             return;
         }
         if (this.diamonds < cost) { this.debugWarning('Kifayət qədər almaz yoxdur.'); return; }
         if (this.rows + 2 > this.maxRows) { this.debugWarning('Maksimum sətir sayına çatılıb.'); return; }
-        this.diamonds -= cost;
+        this.changeCurrency(-cost, 0);
         // Extend ID grid: add one row at TOP and one at BOTTOM with new ids
         const newTop = new Array(this.cols);
         for (let c = 0; c < this.cols; c++) newTop[c] = this.nextCellId++;
@@ -526,22 +553,27 @@ class TowerDefenseGame {
         this.updateGridDimensions(); // This recalculates gridSize (smaller) and re-centers grid
         // Towers' col/row stay the same - just recalculate pixel positions
         this.updateTowerPositions();
-        // Sətir əlavə edildikdə, başlanğıc və qala mövqeyi mərkəzdə qalmalıdır (yeni sətirlər əlavə edildiyi üçün)
-        // Amma istifadəçi qeyd etdikdən sonra mövqeyi saxlamalıdır - qeyd funksiyası bunu edəcək
-        // Burada yalnız yolun mərkəzdə qalması üçün yenidən hesablayırıq
-        if (!this.goalCell) {
-            const midRow = Math.floor(this.gridRows / 2);
+        
+        // Sətir əlavə edildikdə, yolun hər zaman ortada qalması üçün başlanğıc və qala mövqeyini yenidən hesabla
+        // Yeni orta satır: Math.floor(this.rows / 2) (0-indexed)
+        // Məsələn: 9 satır varsa, orta satır = Math.floor(9/2) = 4 (yuxarıda 4, aşağıda 4)
+        // 11 satır varsa, orta satır = Math.floor(11/2) = 5 (yuxarıda 5, aşağıda 5)
+        const midRow = Math.floor(this.rows / 2);
+        
+        // Yolu orta satıra köçür (hər zaman ortada qalmalıdır)
+        if (this.goalCell) {
+            this.goalCell.row = midRow;
+            this.goalCell.col = Math.max(0, Math.min(this.gridCols - 1, this.goalCell.col));
+        } else {
             this.goalCell = { col: this.gridCols - 1, row: midRow };
         }
-        if (!this.startCell) {
-            const midRow = Math.floor(this.gridRows / 2);
+        
+        if (this.startCell) {
+            this.startCell.row = midRow;
+            this.startCell.col = Math.max(0, Math.min(this.gridCols - 1, this.startCell.col));
+        } else {
             this.startCell = { col: 0, row: midRow };
         }
-        // Grid genişləndirildikdə, qala və başlanğıc mövqeyi grid daxilində olub olmadığını yoxla
-        this.goalCell.col = Math.max(0, Math.min(this.gridCols - 1, this.goalCell.col));
-        this.goalCell.row = Math.max(0, Math.min(this.gridRows - 1, this.goalCell.row));
-        this.startCell.col = Math.max(0, Math.min(this.gridCols - 1, this.startCell.col));
-        this.startCell.row = Math.max(0, Math.min(this.gridRows - 1, this.startCell.row));
         this.recomputePath();
         // Animation cells for top and bottom new rows
         const topRowIdx = 0, bottomRowIdx = this.gridRows - 1; const cells = [];
@@ -557,13 +589,13 @@ class TowerDefenseGame {
     // Special tab: +1 column added to the right side from center
     buyCol() {
         const cost = 3;
-        if (!this.gameState.isPaused && (this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1)) {
+        if (this.waveInProgress || this.enemies.length > 0 || this.gameState.wave > 1) {
             this.debugWarning('Sütun alma yalnız oyun başlamadan mümkündür.');
             return;
         }
         if (this.diamonds < cost) { this.debugWarning('Kifayət qədər almaz yoxdur.'); return; }
         if (this.cols + 1 > this.maxCols) { this.debugWarning('Maksimum sütun sayına çatılıb.'); return; }
-        this.diamonds -= cost;
+        this.changeCurrency(-cost, 0);
         // Extend ID grid: add one column on the RIGHT with new ids
         for (let r = 0; r < this.cellIdGrid.length; r++) {
             this.cellIdGrid[r].push(this.nextCellId++);
@@ -705,13 +737,8 @@ class TowerDefenseGame {
             if (moneyReward > 0) {
                 this.gameState.money += moneyReward;
             }
-            if (diamondsReward > 0) {
-                this.diamonds += diamondsReward;
-                localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
-            }
-            if (starsReward > 0) {
-                this.stars += starsReward;
-                localStorage.setItem('towerDefenseStars', this.stars.toString());
+            if (diamondsReward > 0 || starsReward > 0) {
+                this.changeCurrency(diamondsReward, starsReward);
             }
             
             // Mark as redeemed
@@ -798,19 +825,329 @@ class TowerDefenseGame {
         }
     }
     
+    // Elmas və yıldızları yüklə (API-dən və ya localStorage-dan)
+    async loadCurrency() {
+        const loadStartTime = performance.now();
+        this.debugLog('[PERF] loadCurrency() started');
+        
+        // ONLINE MOD: API-dən yüklə (localStorage'dan yükləmə)
+        // OFFLINE MOD: localStorage'dan yüklə (fallback)
+        const shouldUseLocalStorage = this.useLocalStorage || (!this.isOnline && this.API_BASE_URL);
+        
+        if (shouldUseLocalStorage) {
+            // localStorage istifadə et - offline ikən və ya GitHub Pages
+            const savedDiamonds = localStorage.getItem('towerDefenseDiamonds');
+            const savedStars = localStorage.getItem('towerDefenseStars');
+            
+            if (savedDiamonds !== null && savedDiamonds !== '') {
+                this.diamonds = parseInt(savedDiamonds);
+                if (!Number.isFinite(this.diamonds) || this.diamonds < 0) {
+                    this.diamonds = 500;
+                    if (!this.isOnline) {
+                        localStorage.setItem('towerDefenseDiamonds', '500');
+                    }
+                }
+            } else {
+                this.diamonds = 500;
+                if (!this.isOnline) {
+                    localStorage.setItem('towerDefenseDiamonds', '500');
+                }
+            }
+            
+            if (savedStars !== null && savedStars !== '' && savedStars !== '0') {
+                this.stars = parseInt(savedStars);
+                if (!Number.isFinite(this.stars) || this.stars < 0) {
+                    this.stars = 100;
+                    if (!this.isOnline) {
+                        localStorage.setItem('towerDefenseStars', '100');
+                    }
+                }
+            } else {
+                this.stars = 100;
+                if (!this.isOnline) {
+                    localStorage.setItem('towerDefenseStars', '100');
+                }
+            }
+            
+            const loadEndTime = performance.now();
+            this.debugLog(`[PERF] loadCurrency() from localStorage completed in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
+        } else {
+            // API-dən yüklə - timeout ilə
+            const userId = localStorage.getItem('towerDefenseUserId');
+            if (userId && this.API_BASE_URL) {
+                try {
+                    // Timeout ekle - 5 saniyədən çox gözləmə
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+                    
+                    const response = await fetch(`${this.API_BASE_URL}/get-stats?user_id=${userId}`, {
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    
+                    const data = await response.json();
+                    if (data.success && data.stats) {
+                        this.diamonds = data.stats.diamonds || 500;
+                        this.stars = data.stats.stars || 100;
+                        // localStorage-ə də saxla (backup kimi)
+                        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+                        localStorage.setItem('towerDefenseStars', this.stars.toString());
+                    }
+                    
+                    const loadEndTime = performance.now();
+                    this.debugLog(`[PERF] loadCurrency() from API completed in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        this.debugLog('[PERF] loadCurrency() API timeout - using localStorage');
+                    } else {
+                        console.error('Load currency error:', error);
+                    }
+                    // Xəta olduqda localStorage-dan yüklə
+                    const savedDiamonds = localStorage.getItem('towerDefenseDiamonds');
+                    const savedStars = localStorage.getItem('towerDefenseStars');
+                    this.diamonds = savedDiamonds ? parseInt(savedDiamonds) : 500;
+                    this.stars = (savedStars && savedStars !== '0') ? parseInt(savedStars) : 100;
+                    
+                    const loadEndTime = performance.now();
+                    this.debugLog(`[PERF] loadCurrency() fallback completed in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
+                }
+            }
+        }
+        this.updateCurrencyUI();
+    }
+    
+    // Elmas və yıldızları API-yə göndər (güncəlləndikdə) - ONLINE MOD
+    async updateCurrencyAPI(diamondsChange = 0, starsChange = 0) {
+        if (this.useLocalStorage || !this.API_BASE_URL || !this.userId || (diamondsChange === 0 && starsChange === 0)) {
+            return;
+        }
+        
+        // Offline ikən API-yə göndərmə, localStorage'a yaz
+        if (!this.isOnline) {
+            if (diamondsChange !== 0) {
+                localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+            }
+            if (starsChange !== 0) {
+                localStorage.setItem('towerDefenseStars', this.stars.toString());
+            }
+            this.hasOfflineData = true;
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${this.API_BASE_URL}/update-currency`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_id: this.userId,
+                    diamonds_change: diamondsChange,
+                    stars_change: starsChange
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                // Güncəllənmiş dəyərləri API-dən al
+                if (data.diamonds !== undefined) this.diamonds = data.diamonds;
+                if (data.stars !== undefined) this.stars = data.stars;
+                // ONLINE MOD: localStorage'a yazma (yalnız offline backup kimi)
+            }
+        } catch (error) {
+            console.error('Update currency API error:', error);
+            // Xəta olduqda offline rejiminə keç və localStorage'a yaz
+            if (diamondsChange !== 0) {
+                localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+            }
+            if (starsChange !== 0) {
+                localStorage.setItem('towerDefenseStars', this.stars.toString());
+            }
+            this.hasOfflineData = true;
+            this.isOnline = false; // Bağlantı xətası
+        }
+    }
+    
+    // Offline localStorage verilərini API-yə senkronizasiya et
+    async syncOfflineDataToAPI() {
+        if (this.useLocalStorage || !this.API_BASE_URL || !this.userId || !this.isOnline) {
+            return;
+        }
+        
+        this.debugLog('🔄 Offline veriləri API-yə senkronizasiya edilir...');
+        
+        // 1. Elmas/Ulduz senkronizasiyası
+        const offlineDiamonds = localStorage.getItem('towerDefenseDiamonds');
+        const offlineStars = localStorage.getItem('towerDefenseStars');
+        
+        if (offlineDiamonds || offlineStars) {
+            try {
+                // Veritabanından cari dəyərləri al
+                const response = await fetch(`${this.API_BASE_URL}/get-stats?user_id=${this.userId}`);
+                const data = await response.json();
+                
+                if (data.success && data.stats) {
+                    const dbDiamonds = data.stats.diamonds || 0;
+                    const dbStars = data.stats.stars || 0;
+                    const localDiamonds = offlineDiamonds ? parseInt(offlineDiamonds) : dbDiamonds;
+                    const localStars = offlineStars ? parseInt(offlineStars) : dbStars;
+                    
+                    // Əgər localStorage dəyərləri fərqlidirsə, fərqi API-yə göndər
+                    const diamondsDiff = localDiamonds - dbDiamonds;
+                    const starsDiff = localStars - dbStars;
+                    
+                    if (diamondsDiff !== 0 || starsDiff !== 0) {
+                        await this.updateCurrencyAPI(diamondsDiff, starsDiff);
+                        this.debugLog(`✅ Elmas/Ulduz senkronizasiya edildi: ${diamondsDiff} elmas, ${starsDiff} ulduz`);
+                    }
+                }
+            } catch (error) {
+                console.error('Sync currency error:', error);
+            }
+        }
+        
+        // 2. Oyun vəziyyəti senkronizasiyası
+        const offlineGameState = localStorage.getItem('towerDefenseGameState');
+        if (offlineGameState) {
+            try {
+                const gameStateData = JSON.parse(offlineGameState);
+                
+                const response = await fetch(`${this.API_BASE_URL}/save-game-state`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: this.userId,
+                        game_state: gameStateData,
+                        is_game_over: gameStateData.gameState?.gameOver || false
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    this.debugLog('✅ Oyun vəziyyəti senkronizasiya edildi');
+                    // localStorage'dan offline veriləri sil (senkronizasiya edildi)
+                    localStorage.removeItem('towerDefenseGameState');
+                    localStorage.removeItem('towerDefenseGameStateTime');
+                    localStorage.removeItem('towerDefenseDiamonds');
+                    localStorage.removeItem('towerDefenseStars');
+                    this.hasOfflineData = false;
+                    this.showTooltip('✅ Offline verilər veritabanına yükləndi', 'success');
+                }
+            } catch (error) {
+                console.error('Sync game state error:', error);
+            }
+        }
+    }
+    
+    // Currency UI-ni yenilə
+    updateCurrencyUI() {
+        const diamondsEl = document.getElementById('diamonds');
+        const starsEl = document.getElementById('stars');
+        if (diamondsEl) diamondsEl.textContent = this.diamonds;
+        if (starsEl) starsEl.textContent = this.stars;
+    }
+    
+    // Elmas və yıldızları dəyişdir (online: API, offline: localStorage)
+    changeCurrency(diamondsChange = 0, starsChange = 0) {
+        if (diamondsChange !== 0) {
+            this.diamonds = Math.max(0, this.diamonds + diamondsChange);
+        }
+        if (starsChange !== 0) {
+            this.stars = Math.max(0, this.stars + starsChange);
+        }
+        this.updateCurrencyUI();
+        
+        // Online ikən: Sadece API-yə göndər (localStorage'a yazma)
+        // Offline ikən: localStorage'a yaz (API-yə göndərmə)
+        if (diamondsChange !== 0 || starsChange !== 0) {
+            if (this.isOnline && !this.useLocalStorage && this.API_BASE_URL && this.userId) {
+                // Online: API-yə göndər
+                this.updateCurrencyAPI(diamondsChange, starsChange);
+            } else {
+                // Offline və ya API yoxdur: localStorage'a yaz
+                if (diamondsChange !== 0) {
+                    localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+                }
+                if (starsChange !== 0) {
+                    localStorage.setItem('towerDefenseStars', this.stars.toString());
+                }
+                this.hasOfflineData = true; // Offline veri var
+            }
+        }
+    }
+
     async init() {
+        // init() funksiyasının iki dəfə çağırılmasının qarşısını almaq
+        if (this.initInProgress) {
+            this.debugLog('[INIT] ⚠️ init() artıq davam edir, ikinci çağırış skip edilir');
+            return;
+        }
+        this.initInProgress = true;
+        
+        const initStartTime = performance.now();
+        this.debugLog('[PERF] init() started');
+        
         // Get user ID from localStorage
         const userId = localStorage.getItem('towerDefenseUserId');
         if (userId) {
             this.userId = parseInt(userId);
         }
         
+        // ONLINE iken offline verileri senkronize et (bağlantı bərpa olundu)
+        if (this.isOnline && !this.useLocalStorage && this.API_BASE_URL && this.userId) {
+            await this.syncOfflineDataToAPI();
+        }
+        
+        // Paralel yükləmə - API çağrılarını eyni anda et (sürət artırır)
+        this.debugLog('[PERF] Starting parallel loads (currency + game state)');
+        const loadStartTime = performance.now();
+        
+        // İKİSİNİ EYNİ ANDA YÜKLƏ - sürət artırır
+        const [currencyResult, savedState] = await Promise.all([
+            this.loadCurrency().catch(err => {
+                this.debugLog(`[PERF] loadCurrency error: ${err}`);
+                return null;
+            }),
+            (this.userId || this.useLocalStorage) ? this.loadGameState().catch(err => {
+                this.debugLog(`[PERF] loadGameState error: ${err}`);
+                return null;
+            }) : Promise.resolve(null)
+        ]);
+        
+        const loadEndTime = performance.now();
+        this.debugLog(`[PERF] Parallel loads completed in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
+        
         // Qeyd yoxlaması - əgər qeyd varsa və game over deyilsə, davam etmək sualı
-        // localStorage və ya backend-dən yüklə
-        if (this.userId || this.useLocalStorage) {
-            const savedState = await this.loadGameState();
-            if (savedState && savedState.success && savedState.game_state && !savedState.is_game_over) {
+        // sessionStorage istifadə et ki, mesaj yalnız bir dəfə göstərilsin (bir səhifə yükləməsi üçün)
+        const confirmKey = 'game_continue_confirm_shown_' + (this.userId || 'local');
+        
+        if (savedState && savedState.success && savedState.game_state && !savedState.is_game_over) {
+            // İLK ÖNCƏ yoxla ki, başqa çağırış artıq flag qoyub?
+            const confirmAlreadyShown = sessionStorage.getItem(confirmKey);
+            
+            if (!confirmAlreadyShown) {
+                // Flag'i İLK ÖNCE set et ki, paralel çağırışlarda iki dəfə göstərilməsin
+                sessionStorage.setItem(confirmKey, 'true');
+                
+                // Qısa bir delay əlavə et ki, paralel çağırışlar üçün flag set olsun
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+                // Yenidən yoxla ki, başqa çağırış flag qoyubmu? (race condition üçün)
+                const doubleCheck = sessionStorage.getItem(confirmKey);
+                if (doubleCheck !== 'true') {
+                    // Başqa çağırış artıq flag silib və ya dəyişib, skip et
+                    this.debugLog('[INIT] ⚠️ Confirm mesajı başqa çağırış tərəfindən idarə edilir, skip edilir');
+                    this.initInProgress = false;
+                    return;
+                }
+                
                 const continueGame = confirm('Qaldığınız yerdən davam etmək istəyirsinizmi?');
+                
+                // Cavabdan sonra flag'i sil (növbəti dəfə üçün)
+                sessionStorage.removeItem(confirmKey);
+                
                 if (continueGame) {
                     // Oyun vəziyyətini bərpa et
                     this.restoreGameState(savedState);
@@ -822,6 +1159,7 @@ class TowerDefenseGame {
                     this.recomputePath();
                     this.setGameSpeed(1);
                     this.gameLoop();
+                    this.initInProgress = false;
                     return;
                 } else {
                     // Qeydi sil
@@ -837,19 +1175,19 @@ class TowerDefenseGame {
                         }).catch(err => console.error('Delete game state error:', err));
                     }
                 }
-            } else if (!this.useLocalStorage && savedState && savedState.success && savedState.is_game_over) {
-                // Game over olubsa, qeydi sil və yenidən başla
-                if (this.API_BASE_URL) {
-                    fetch(`${this.API_BASE_URL}/delete-game-state`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            user_id: this.userId
-                        })
-                    }).catch(err => console.error('Delete game state error:', err));
-                }
+            }
+        } else if (!this.useLocalStorage && savedState && savedState.success && savedState.is_game_over) {
+            // Game over olubsa, qeydi sil və yenidən başla
+            if (this.API_BASE_URL) {
+                fetch(`${this.API_BASE_URL}/delete-game-state`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: this.userId
+                    })
+                }).catch(err => console.error('Delete game state error:', err));
             }
         }
         
@@ -857,26 +1195,45 @@ class TowerDefenseGame {
         this.gameStartTime = Date.now();
         this.enemiesKilledThisGame = 0;
         
+        const setupStartTime = performance.now();
+        this.debugLog('[PERF] Starting setup functions');
+        
         this.setupEventListeners();
         this.setupResponsiveHandling();
         this.setupVisibilityHandling();
         this.recomputePath();
         // Set initial UI state for speed buttons
         this.setGameSpeed(1);
+        
+        // init() tamamlandı
+        this.initInProgress = false;
+        
+        const setupEndTime = performance.now();
+        this.debugLog(`[PERF] Setup functions completed in ${(setupEndTime - setupStartTime).toFixed(2)}ms`);
+        
+        const initEndTime = performance.now();
+        this.debugLog(`[PERF] init() completed in ${(initEndTime - initStartTime).toFixed(2)}ms`);
+        
         this.gameLoop();
     }
     
     // Tab görünməz olanda belə oyunun davam etməsini təmin et
     setupVisibilityHandling() {
-        // visibilitychange event listener əlavə et
-        document.addEventListener('visibilitychange', () => {
+        // Tab görünməz olsa belə oyun davam etsin - ilk yoxlama
+        const handleVisibilityChange = () => {
             if (document.hidden) {
                 // Tab görünməz olanda, setInterval istifadə et (daha etibarlı)
                 if (!this.gameLoopInterval) {
                     this.debugLog('Tab görünməzdir - setInterval aktivləşdirilir');
                     // requestAnimationFrame-i dayandır və setInterval istifadə et
+                    const self = this; // Store reference to correct instance
                     this.gameLoopInterval = setInterval(() => {
-                        this.gameLoop();
+                        // CRITICAL: Use stored reference
+                        if (self && self.gameLoop) {
+                            self.gameLoop();
+                        } else {
+                            console.error('[GAME-LOOP] ❌ CRITICAL: this context lost in setInterval!', self);
+                        }
                     }, 16); // ~60 FPS
                 }
             } else {
@@ -889,7 +1246,15 @@ class TowerDefenseGame {
                 // lastUpdateTime-u yenilə ki, deltaTime düzgün hesablansın
                 this.lastUpdateTime = Date.now();
             }
-        });
+        };
+        
+        // visibilitychange event listener əlavə et
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        
+        // İlk yoxlama: əgər tab başlanğıcda gizlidirsə, setInterval qur
+        if (document.hidden) {
+            handleVisibilityChange();
+        }
         
         // window focus/blur event listener-ləri də əlavə et (əlavə təhlükəsizlik üçün)
         window.addEventListener('blur', () => {
@@ -1073,9 +1438,51 @@ class TowerDefenseGame {
     }
     
     setupEventListeners() {
+        // Mouse move event listener for enemy tooltip
+        this.canvas.addEventListener('mousemove', (e) => {
+            const { x, y } = this.getCanvasCoords(e);
+            this.mouseX = x;
+            this.mouseY = y;
+            
+            // Check if mouse is over an enemy
+            this.hoveredEnemy = null;
+            for (const enemy of this.enemies) {
+                const radius = this.getEnemyRadius(enemy.type);
+                const dx = x - enemy.x;
+                const dy = y - enemy.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist <= radius + 5) { // 5px padding for easier hover
+                    this.hoveredEnemy = enemy;
+                    break;
+                }
+            }
+            
+            // Change cursor if hovering over enemy
+            if (this.hoveredEnemy) {
+                this.canvas.style.cursor = 'pointer';
+            } else if (!this.selectedTowerType) {
+                this.canvas.style.cursor = 'default';
+            }
+        });
+        
         // Canvas mouse interactions (drag place/move/select)
         this.canvas.addEventListener('mousedown', (e) => {
             if (this.gameState.gameOver) return;
+            
+            // Mağazadan gelen event'leri engelle
+            const target = e.target;
+            // Shop içindəki button və input elementlərinə mane olma - amma yalnız shop içindəkilər
+            if (target && (
+                target.closest('.tower-shop') || 
+                target.closest('.tower-option') || 
+                target.closest('.shop') ||
+                target.closest('#tab-controls') ||
+                target.closest('.shop-tab-content')
+            )) {
+                this.debugLog(`[CANVAS] Event from shop detected, ignoring: ${e.type} on ${target.tagName}`);
+                return; // Mağazadan gelen event'leri işleme
+            }
+            
             const { x, y } = this.getCanvasCoords(e);
             // Right-click should open context only, never start placement
             if (e.button === 2) {
@@ -1116,12 +1523,11 @@ class TowerDefenseGame {
                     return; // Don't open context menu in pairing mode
                 }
 
-                // Start long-press to open context menu (500ms)
-                clearTimeout(this.longPressTimer);
-                this.longPressTimer = setTimeout(() => {
-                    this.selectTower(towerAtPoint);
-                    this.showTowerContextAt(towerAtPoint);
-                }, 500);
+                // Dərhal qülləni seç (siyahının başına köçürmək üçün)
+                this.selectTower(towerAtPoint);
+                
+                // Sol klikdə dərhal context menu aç
+                this.showTowerContextAt(towerAtPoint);
                 // Kulelər köçürülməz - yalnız seçilir və satıla bilər
                 this.debugTower(`Kule seçildi - Köçürülməz, yalnız satıla bilər`);
                 // Snap to grid center of the cell under cursor
@@ -1179,6 +1585,20 @@ class TowerDefenseGame {
 
         this.canvas.addEventListener('mousemove', (e) => {
             if (this.gameState.gameOver) return;
+            
+            // Mağazadan gelen event'leri engelle
+            const target = e.target;
+            if (target && (
+                target.closest('.tower-shop') || 
+                target.closest('.tower-option') || 
+                target.closest('.shop') ||
+                target.closest('#tab-controls') ||
+                target.closest('.shop-tab-content')
+            )) {
+                this.debugLog(`[CANVAS] Event from shop detected, ignoring: ${e.type} on ${target.tagName}`);
+                return; // Mağazadan gelen event'leri işleme
+            }
+            
             const { x, y } = this.getCanvasCoords(e);
             this.lastMovePos = { x, y };
             // Hover-to-open after 400ms if stationary over a tower
@@ -1208,6 +1628,20 @@ class TowerDefenseGame {
 
         this.canvas.addEventListener('mouseup', (e) => {
             if (this.gameState.gameOver) return;
+            
+            // Mağazadan gelen event'leri engelle
+            const target = e.target;
+            if (target && (
+                target.closest('.tower-shop') || 
+                target.closest('.tower-option') || 
+                target.closest('.shop') ||
+                target.closest('#tab-controls') ||
+                target.closest('.shop-tab-content')
+            )) {
+                this.debugLog(`[CANVAS] Event from shop detected, ignoring: ${e.type} on ${target.tagName}`);
+                return; // Mağazadan gelen event'leri işleme
+            }
+            
             if (e.button !== 0) return; // only left click finalizes placement
             const { x, y } = this.getCanvasCoords(e);
             const wasDraggingNew = this.isDraggingNew;
@@ -1296,114 +1730,321 @@ class TowerDefenseGame {
             });
         });
         
+        // Shop scroll davranışını kontrol et - over-scroll engelleme ve sallanmayı önleme
+        const shopContentWrapper = document.querySelector('.shop-content-wrapper');
+        if (shopContentWrapper) {
+            let isScrolling = false;
+            let scrollTimeout = null;
+            
+            shopContentWrapper.addEventListener('wheel', (e) => {
+                const element = shopContentWrapper;
+                const isScrollingDown = e.deltaY > 0;
+                const isScrollingUp = e.deltaY < 0;
+                
+                // Mevcut scroll pozisyonu
+                const scrollTop = element.scrollTop;
+                const scrollHeight = element.scrollHeight;
+                const clientHeight = element.clientHeight;
+                
+                // Alt sınırda mıyız? (5 piksel tolerans - daha güvenli)
+                const isAtBottom = scrollTop + clientHeight >= scrollHeight - 5;
+                // Üst sınırda mıyız?
+                const isAtTop = scrollTop <= 5;
+                
+                // Eğer aşağı scroll ediliyor ve zaten alttaysak - engelle ve pozisyonu sabitle
+                if (isScrollingDown && isAtBottom) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    // Pozisyonu kesin olarak sabitle
+                    requestAnimationFrame(() => {
+                        element.scrollTop = scrollHeight - clientHeight;
+                    });
+                    return false;
+                }
+                
+                // Eğer yukarı scroll ediliyor ve zaten üstteysek - engelle ve pozisyonu sabitle
+                if (isScrollingUp && isAtTop) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    // Pozisyonu kesin olarak sabitle
+                    requestAnimationFrame(() => {
+                        element.scrollTop = 0;
+                    });
+                    return false;
+                }
+                
+                // Scroll devam ediyorsa flag'i ayarla
+                isScrolling = true;
+                if (scrollTimeout) {
+                    clearTimeout(scrollTimeout);
+                }
+                scrollTimeout = setTimeout(() => {
+                    isScrolling = false;
+                }, 150);
+            }, { passive: false });
+            
+            // Scroll event'inde pozisyonu düzelt ve sallanmayı önle
+            shopContentWrapper.addEventListener('scroll', (e) => {
+                if (!isScrolling) return; // Scroll bittiğinde kontrol et
+                
+                const element = e.target;
+                const scrollTop = element.scrollTop;
+                const scrollHeight = element.scrollHeight;
+                const clientHeight = element.clientHeight;
+                
+                // Pozisyonu kesin olarak sınırlar içinde tut
+                requestAnimationFrame(() => {
+                    if (scrollTop < 0) {
+                        element.scrollTop = 0;
+                    } else if (scrollTop + clientHeight > scrollHeight) {
+                        element.scrollTop = scrollHeight - clientHeight;
+                    }
+                });
+            }, { passive: true });
+            
+            // Mouse wheel bittiğinde pozisyonu sabitle
+            shopContentWrapper.addEventListener('wheel', (e) => {
+                const element = shopContentWrapper;
+                const scrollTop = element.scrollTop;
+                const scrollHeight = element.scrollHeight;
+                const clientHeight = element.clientHeight;
+                
+                // Wheel event bittiğinde pozisyonu düzelt
+                setTimeout(() => {
+                    requestAnimationFrame(() => {
+                        if (scrollTop < 0) {
+                            element.scrollTop = 0;
+                        } else if (scrollTop + clientHeight > scrollHeight) {
+                            element.scrollTop = scrollHeight - clientHeight;
+                        }
+                    });
+                }, 50);
+            }, { passive: true });
+        }
+        
         // Tower selection
         document.querySelectorAll('.tower-option').forEach(option => {
-            // Tooltip mövqeyini dinamik olaraq təyin et (hover zamanı)
-            option.addEventListener('mouseenter', () => {
-                const tooltip = option.querySelector('.tower-tooltip');
-                if (tooltip) {
-                    // Elementin mövqeyini və pəncərənin ölçülərini yoxla
-                    const rect = option.getBoundingClientRect();
-                    const viewportHeight = window.innerHeight;
-                    
-                    // Tooltip ölçüsünü yoxla (məktubu gizli rejimdə yerləşdirərək)
-                    const originalDisplay = tooltip.style.display;
-                    const originalVisibility = tooltip.style.visibility;
-                    const originalPosition = tooltip.style.position;
-                    tooltip.style.display = 'block';
-                    tooltip.style.visibility = 'hidden';
-                    tooltip.style.position = 'fixed'; // Fixed positioning to escape shop panel overflow
-                    const tooltipRect = tooltip.getBoundingClientRect();
-                    
-                    // Yuxarıda yer yetərli deyilsə və ya element pəncərənin yuxarı yarısındadırsa, tooltip aşağıda
-                    const spaceAbove = rect.top;
-                    const spaceBelow = viewportHeight - rect.bottom;
-                    const tooltipHeight = tooltipRect.height || 200; // Fallback yüksəklik
-                    
-                    // Calculate fixed position based on tower-option's bounding rect
-                    const optionCenterX = rect.left + rect.width / 2;
-                    let tooltipTop, tooltipLeft;
-                    
-                    if (spaceAbove < tooltipHeight + 20 && spaceBelow >= tooltipHeight + 20) {
-                        tooltip.setAttribute('data-position', 'bottom');
-                        tooltipTop = rect.bottom + 10;
-                        tooltipLeft = optionCenterX;
-                    } else {
-                        tooltip.setAttribute('data-position', 'top');
-                        tooltipTop = rect.top - (tooltipRect.height || 200) - 10;
-                        tooltipLeft = optionCenterX;
-                    }
-                    
-                    // Set fixed position
-                    tooltip.style.position = 'fixed';
-                    tooltip.style.top = tooltipTop + 'px';
-                    tooltip.style.left = tooltipLeft + 'px';
-                    tooltip.style.bottom = 'auto';
-                    tooltip.style.transform = 'translateX(-50%)';
-                    tooltip.style.zIndex = '100001';
-                    
-                    tooltip.style.display = originalDisplay;
-                    tooltip.style.visibility = originalVisibility;
-                    // Keep fixed positioning for proper stacking
-                }
-            });
+            // Sürükleme davranışını engelle
+            option.setAttribute('draggable', 'false');
             
-            option.addEventListener('mouseleave', () => {
-                const tooltip = option.querySelector('.tower-tooltip');
-                if (tooltip) {
-                    // Reset position back to absolute when not hovering
-                    tooltip.style.position = '';
-                    tooltip.style.top = '';
-                    tooltip.style.left = '';
-                    tooltip.style.bottom = '';
-                    tooltip.style.transform = '';
-                }
-            });
+            // Tooltip'leri tamamen gizle - context menüde zaten bilgiler var
+            const tooltip = option.querySelector('.tower-tooltip');
+            if (tooltip) {
+                tooltip.style.display = 'none';
+                tooltip.style.visibility = 'hidden';
+                tooltip.style.opacity = '0';
+                tooltip.style.pointerEvents = 'none';
+                // Event listener'ları da kaldır
+                tooltip.removeEventListener('mouseenter', () => {});
+                tooltip.removeEventListener('mouseleave', () => {});
+            }
             
-            // Sol klik - qüllə seçimi və ya kontekst menyu aç
-            option.addEventListener('click', (e) => {
+            // Tüm sürükleme event'lerini engelle - mağazada sürüklemeye izin verme
+            const preventDrag = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            };
+            
+            // HTML5 drag & drop event'leri
+            option.addEventListener('dragstart', (e) => {
                 const towerType = e.currentTarget.dataset.tower;
-                if (towerType) {
-                    // Sadə sol klik - kontekst menyu aç (qüllə seçimi yoxdur artıq mağazadan)
-                    e.preventDefault();
-                    this.showShopTowerContextMenu(e.currentTarget, towerType, e.clientX, e.clientY);
+                this.debugLog(`[SHOP DRAG] dragstart on tower-option: ${towerType} - PREVENTING`);
+                preventDrag(e);
+            });
+            option.addEventListener('dragover', (e) => {
+                this.debugLog(`[SHOP DRAG] dragover on tower-option - PREVENTING`);
+                preventDrag(e);
+            });
+            option.addEventListener('drop', (e) => {
+                this.debugLog(`[SHOP DRAG] drop on tower-option - PREVENTING`);
+                preventDrag(e);
+            });
+            option.addEventListener('drag', (e) => {
+                this.debugLog(`[SHOP DRAG] drag on tower-option - PREVENTING`);
+                preventDrag(e);
+            });
+            option.addEventListener('dragend', (e) => {
+                this.debugLog(`[SHOP DRAG] dragend on tower-option - PREVENTING`);
+                preventDrag(e);
+            });
+            option.addEventListener('dragleave', (e) => {
+                this.debugLog(`[SHOP DRAG] dragleave on tower-option - PREVENTING`);
+                preventDrag(e);
+            });
+            option.addEventListener('dragenter', (e) => {
+                this.debugLog(`[SHOP DRAG] dragenter on tower-option - PREVENTING`);
+                preventDrag(e);
+            });
+            
+            // Mouse event'leri - sürükleme davranışını engelle
+            let isDragging = false;
+            let dragStartPos = null;
+            
+            option.addEventListener('mousedown', (e) => {
+                const towerType = e.currentTarget.dataset.tower;
+                this.debugLog(`[SHOP DRAG] mousedown on tower-option: ${towerType}, button: ${e.button}`);
+                // Sadece sol tık için - sağ tık ve orta tık için engelleme
+                if (e.button === 0) {
+                    dragStartPos = { x: e.clientX, y: e.clientY };
+                    isDragging = false;
+                    this.debugLog(`[SHOP DRAG] dragStartPos set: (${dragStartPos.x}, ${dragStartPos.y})`);
+                }
+                // preventDefault'i kaldırdık çünkü click event'i de çalışması lazım
+            });
+            
+            option.addEventListener('mousemove', (e) => {
+                if (dragStartPos && e.buttons === 1) {
+                    const dx = Math.abs(e.clientX - dragStartPos.x);
+                    const dy = Math.abs(e.clientY - dragStartPos.y);
+                    const dist = Math.hypot(dx, dy);
+                    this.debugLog(`[SHOP DRAG] mousemove: dx=${dx.toFixed(1)}, dy=${dy.toFixed(1)}, dist=${dist.toFixed(1)}, buttons=${e.buttons}`);
+                    // Eğer 5 piksel'den fazla hareket varsa sürükleme başladı
+                    if (dx > 5 || dy > 5) {
+                        isDragging = true;
+                        this.debugLog(`[SHOP DRAG] Dragging detected! Preventing default behavior`);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                    }
                 }
             });
             
-            // Sağ klik - mağaza kontekst menyusu (bütün qüllələr üçün)
+            option.addEventListener('mouseup', (e) => {
+                const towerType = e.currentTarget.dataset.tower;
+                this.debugLog(`[SHOP DRAG] mouseup on tower-option: ${towerType}, isDragging: ${isDragging}`);
+                if (isDragging) {
+                    this.debugLog(`[SHOP DRAG] Was dragging, preventing default behavior`);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+                dragStartPos = null;
+                isDragging = false;
+            });
+            
+            // Seçimi engelle
+            option.addEventListener('selectstart', preventDrag);
+            option.addEventListener('select', preventDrag);
+            
+            // Sol klik - qüllə seçimi, siyahının yuxarısına keçir və kontekst menyu aç
+            option.addEventListener('click', (e) => {
+                const towerType = e.currentTarget?.dataset?.tower;
+                const targetElement = e.currentTarget;
+                
+                if (!targetElement) {
+                    this.debugError('Click event: currentTarget is null');
+                    return;
+                }
+                
+                if (towerType) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    this.debugLog(`Mağazada qüllə seçildi (sol klik): ${towerType}`);
+                    
+                    // Qülləni seç (bu siyahını yeniləyəcək)
+                    this.selectTowerType(towerType);
+                    this.debugLog(`selectedTowerType artıq: ${this.selectedTowerType}`);
+                    
+                    // Seçilən qüllə kartını siyahının üstünə köçür - SADECE SOL KLİKDE
+                    this.moveTowerOptionToTop(targetElement);
+                    
+                    // Sol klikdə kontekst menyu AÇILMIR - yalnız qüllə seçilir və yuxarı qaldırılır
+                    // Kontekst menyu yalnız sağ klik (contextmenu event) ilə açılır
+                }
+            });
+            
+            // Sağ klik - mağaza kontekst menyusu (siyahının yuxarısına keçmə)
             option.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                const towerType = e.currentTarget.dataset.tower;
+                const towerType = e.currentTarget?.dataset?.tower;
+                const targetElement = e.currentTarget;
+                
+                if (!targetElement) {
+                    this.debugError('Contextmenu event: currentTarget is null');
+                    return;
+                }
+                
                 // Bütün qüllə tipləri üçün (pul ilə alınan və ulduzla alınan)
                 if (towerType) {
-                    this.showShopTowerContextMenu(e.currentTarget, towerType, e.clientX, e.clientY);
+                    this.debugLog(`Mağazada qüllə seçildi (sağ klik): ${towerType}`);
+                    
+                    // Qülləni seç (sağ klikdə də seçmek lazımdır)
+                    this.selectTowerType(towerType);
+                    
+                    // SAĞ KLİKDE KONTEKST MENYU AÇILIR
+                    // Sol klikdə yalnız qüllə seçilir və yuxarı qaldırılır, kontekst menyu açılmır
+                    // Sağ klikdə isə qüllə seçilir və kontekst menyu açılır
+                    // moveTowerOptionToTop çağrılmıyor (sağ klikdə yuxarı qaldırılmır)
+                    
+                    if (targetElement && targetElement.isConnected) {
+                        this.showShopTowerContextMenu(targetElement, towerType, e.clientX, e.clientY);
+                    } else {
+                        this.debugError('showShopTowerContextMenu: targetElement is not connected to DOM');
+                    }
                 }
             });
         });
         
+        // Mağazadaki kule iconlarını oyundaki forma uygun çiz - awaken ve shield efektleri ile
+        this.updateShopTowerIcons();
+        
+        // Başlangıçda 'basic' qülləni seç və kartını üstə köçür (DOM hazır olduqdan sonra)
+        setTimeout(() => {
+            this.selectTowerType('basic');
+            const basicOption = document.querySelector('[data-tower="basic"]');
+            if (basicOption) {
+                this.moveTowerOptionToTop(basicOption);
+            }
+        }, 100);
+        
         // Game controls
-        document.getElementById('startWave').addEventListener('click', () => {
-            this.startWave();
-        });
+        const startWaveBtn = document.getElementById('startWave');
+        if (startWaveBtn) {
+            startWaveBtn.addEventListener('click', () => {
+                this.startWave();
+            });
+        }
         
-        document.getElementById('autoStart').addEventListener('change', (e) => {
-            this.autoStart = e.target.checked;
-        });
+        const autoStartCheckbox = document.getElementById('autoStart');
+        if (autoStartCheckbox) {
+            autoStartCheckbox.addEventListener('change', (e) => {
+                this.autoStart = e.target.checked;
+            });
+        }
         
-        document.getElementById('pauseGame').addEventListener('click', () => {
-            this.togglePause();
-        });
         
         // Restart game
-        document.getElementById('restartGame').addEventListener('click', () => {
-            this.restartGame();
-        });
+        const restartGameBtn = document.getElementById('restartGame');
+        if (restartGameBtn) {
+            restartGameBtn.addEventListener('click', () => {
+                this.restartGame();
+            });
+        }
         
         // Save game state
         const saveGameStateBtn = document.getElementById('saveGameState');
         if (saveGameStateBtn) {
             saveGameStateBtn.addEventListener('click', () => {
                 this.saveGameState();
+            });
+        }
+        
+        // Pause/Resume controls
+        const pauseGameBtn = document.getElementById('pauseGame');
+        const resumeGameBtn = document.getElementById('resumeGame');
+        if (pauseGameBtn) {
+            pauseGameBtn.addEventListener('click', () => {
+                this.pauseGame();
+            });
+        }
+        
+        if (resumeGameBtn) {
+            resumeGameBtn.addEventListener('click', () => {
+                this.resumeGame();
             });
         }
         
@@ -1431,15 +2072,24 @@ class TowerDefenseGame {
         }
         
         // Speed controls
-        document.getElementById('speed1').addEventListener('click', () => {
-            this.setGameSpeed(1);
-        });
-        document.getElementById('speed2').addEventListener('click', () => {
-            this.setGameSpeed(2);
-        });
-        document.getElementById('speed3').addEventListener('click', () => {
-            this.setGameSpeed(3);
-        });
+        const speed1Btn = document.getElementById('speed1');
+        const speed2Btn = document.getElementById('speed2');
+        const speed3Btn = document.getElementById('speed3');
+        if (speed1Btn) {
+            speed1Btn.addEventListener('click', () => {
+                this.setGameSpeed(1);
+            });
+        }
+        if (speed2Btn) {
+            speed2Btn.addEventListener('click', () => {
+                this.setGameSpeed(2);
+            });
+        }
+        if (speed3Btn) {
+            speed3Btn.addEventListener('click', () => {
+                this.setGameSpeed(3);
+            });
+        }
         
         // Global avtomatik can yeniləmə
         const globalAutoHealToggle = document.getElementById('globalAutoHealToggle');
@@ -1448,43 +2098,85 @@ class TowerDefenseGame {
         const globalAutoHealConfirm = document.getElementById('globalAutoHealConfirm');
         
         if (globalAutoHealToggle) {
-            globalAutoHealToggle.addEventListener('click', () => {
+            console.log('[SETUP] ✅ globalAutoHealToggle found, adding event listener');
+            // Remove existing listeners by cloning
+            const newToggle = globalAutoHealToggle.cloneNode(true);
+            globalAutoHealToggle.parentNode.replaceChild(newToggle, globalAutoHealToggle);
+            newToggle.addEventListener('click', (e) => {
+                console.log('[CLICK] 🔵 globalAutoHealToggle clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 this.showGlobalAutoHealPanel();
-            });
+            }, true); // Use capture phase
+        } else {
+            console.error('[SETUP] ❌ globalAutoHealToggle NOT FOUND!');
         }
         if (globalAutoHealSelectAll) {
-            globalAutoHealSelectAll.addEventListener('click', () => {
+            console.log('[SETUP] ✅ globalAutoHealSelectAll found, adding event listener');
+            globalAutoHealSelectAll.addEventListener('click', (e) => {
+                console.log('[CLICK] 🔵 globalAutoHealSelectAll clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
                 this.selectAllTowersForAutoHeal();
             });
+        } else {
+            console.error('[SETUP] ❌ globalAutoHealSelectAll NOT FOUND!');
         }
         if (globalAutoHealDeselectAll) {
-            globalAutoHealDeselectAll.addEventListener('click', () => {
+            console.log('[SETUP] ✅ globalAutoHealDeselectAll found, adding event listener');
+            globalAutoHealDeselectAll.addEventListener('click', (e) => {
+                console.log('[CLICK] 🔵 globalAutoHealDeselectAll clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
                 this.deselectAllTowersForAutoHeal();
             });
+        } else {
+            console.error('[SETUP] ❌ globalAutoHealDeselectAll NOT FOUND!');
         }
         if (globalAutoHealConfirm) {
-            globalAutoHealConfirm.addEventListener('click', () => {
+            console.log('[SETUP] ✅ globalAutoHealConfirm found, adding event listener');
+            globalAutoHealConfirm.addEventListener('click', (e) => {
+                console.log('[CLICK] 🔵 globalAutoHealConfirm clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
                 this.confirmGlobalAutoHeal();
             });
+        } else {
+            console.error('[SETUP] ❌ globalAutoHealConfirm NOT FOUND!');
         }
 
         // Floating context menu actions
+        // Not: Event listener'lar showTowerContextAt() içinde her açılışta ekleniyor
+        // Burada sadece butonların varlığını kontrol ediyoruz
         const ctxSellBtn = document.getElementById('ctxSell');
-        ctxSellBtn && ctxSellBtn.addEventListener('click', () => {
-            this.sellTower();
-            this.hideTowerContext();
-        });
+        if (ctxSellBtn) {
+            console.log('[SETUP] ✅ ctxSell button found in DOM');
+        } else {
+            console.error('[SETUP] ❌ ctxSell button NOT FOUND in DOM!');
+            alert('❌ ctxSell butonu tapılmadı!');
+        }
         const btnHeal = document.getElementById('ctxHeal');
         btnHeal && btnHeal.addEventListener('click', () => { this.healTower(); });
+        const btnHealthUpgrade = document.getElementById('ctxHealthUpgrade');
+        btnHealthUpgrade && btnHealthUpgrade.addEventListener('click', () => { this.upgradeHealth(); });
         
         // Avtomatik can yeniləmə düymələri
+        // Not: Event listener'lar showTowerContextAt() içinde her açılışta ekleniyor
+        // Burada sadece butonların varlığını kontrol ediyoruz
         const btnAutoHealToggle = document.getElementById('ctxAutoHealToggle');
         const btnAutoHealConfirm = document.getElementById('ctxAutoHealConfirm');
+        
         if (btnAutoHealToggle) {
-            btnAutoHealToggle.addEventListener('click', () => { this.toggleAutoHeal(); });
+            console.log('[SETUP] ✅ ctxAutoHealToggle button found in DOM');
+        } else {
+            console.error('[SETUP] ❌ ctxAutoHealToggle button NOT FOUND in DOM!');
         }
+        
         if (btnAutoHealConfirm) {
-            btnAutoHealConfirm.addEventListener('click', () => { this.confirmAutoHeal(); });
+            console.log('[SETUP] ✅ ctxAutoHealConfirm button found in DOM');
+        } else {
+            console.error('[SETUP] ❌ ctxAutoHealConfirm button NOT FOUND in DOM!');
         }
         
         const btnShield = document.getElementById('ctxShield');
@@ -1515,13 +2207,19 @@ class TowerDefenseGame {
         });
         
         // Tower management
-        document.getElementById('upgradeTower').addEventListener('click', () => {
-            this.upgradeTower();
-        });
+        const upgradeTowerBtn = document.getElementById('upgradeTower');
+        if (upgradeTowerBtn) {
+            upgradeTowerBtn.addEventListener('click', () => {
+                this.upgradeTower();
+            });
+        }
         
-        document.getElementById('sellTower').addEventListener('click', () => {
-            this.sellTower();
-        });
+        const sellTowerBtn = document.getElementById('sellTower');
+        if (sellTowerBtn) {
+            sellTowerBtn.addEventListener('click', () => {
+                this.sellTower();
+            });
+        }
     }
 
     // Convert mouse event coordinates to canvas space, accounting for CSS scaling
@@ -1541,6 +2239,193 @@ class TowerDefenseGame {
         options && options.forEach(option => option.classList.remove('selected'));
         const el = document.querySelector(`[data-tower="${type}"]`);
         if (el) el.classList.add('selected');
+    }
+    
+    // Seçilən qüllə kartını siyahının üstünə köçür
+    moveTowerOptionToTop(selectedOption) {
+        if (!selectedOption) {
+            this.debugLog(`moveTowerOptionToTop: selectedOption null`);
+            return;
+        }
+        
+        // Qüllə kartının parent container'ını tap
+        const parent = selectedOption.parentElement;
+        if (!parent) {
+            this.debugLog(`moveTowerOptionToTop: parent tapılmadı`);
+            return;
+        }
+        
+        // Tower-options container'ını tap (doğrudan və ya wrapper içində)
+        let towerOptionsContainer = parent;
+        if (!parent.classList.contains('tower-options')) {
+            // Wrapper içində olabilir - shop-tab-content içindeki tower-options'ı tap
+            towerOptionsContainer = parent.closest('.tower-options');
+            if (!towerOptionsContainer) {
+                this.debugLog(`moveTowerOptionToTop: tower-options container tapılmadı, parent: ${parent.className}`);
+                return;
+            }
+        }
+        
+        // Seçilən qülləni container-dan çıxar
+        const selectedElement = towerOptionsContainer.removeChild(selectedOption);
+        
+        // Siyahının başına əlavə et
+        towerOptionsContainer.insertBefore(selectedElement, towerOptionsContainer.firstChild);
+        
+        this.debugLog(`✅ Qüllə kartı siyahının üstünə köçürüldü: ${selectedOption.dataset.tower}`);
+    }
+    
+    // Mağazadaki kule iconlarını oyundaki forma uygun güncelle - awaken ve shield efektleri ile
+    updateShopTowerIcons() {
+        const iconSize = 50;
+        const towerTypes = ['basic', 'rapid', 'heavy', 'ice', 'flame', 'laser', 'plasma'];
+        
+        towerTypes.forEach(towerType => {
+            const iconElement = document.querySelector(`.tower-icon.${towerType}-tower`);
+            if (!iconElement) return;
+            
+            // Canvas oluştur - daha büyük çözünürlük için scale
+            const scale = 2; // Retina için
+            const canvas = document.createElement('canvas');
+            canvas.width = iconSize * scale;
+            canvas.height = iconSize * scale;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale);
+            
+            const centerX = iconSize / 2;
+            const centerY = iconSize / 2;
+            // BaseR hesaplaması - icon size'a göre (oyundaki gibi daire formu)
+            // iconSize = 50 için baseR yaklaşık 19 olmalı (50 * 0.38)
+            const baseR = Math.max(6, Math.round(iconSize * 0.38)); // Daire formunda - köşe yok
+            const hpRatio = 1.0; // Full health - mağazada her zaman full
+            
+            // Qüllə rəngləri - oyundakiyle aynı
+            const colors = {
+                basic: 'hsl(120, 90%, 60%)',   // Green
+                rapid: 'hsl(200, 90%, 60%)',   // Blue
+                heavy: 'hsl(0, 90%, 60%)',     // Red
+                ice: '#00CED1',                 // Cyan
+                flame: '#FF4500',               // Orange red
+                laser: '#FF1493',               // Deep pink
+                plasma: '#9370DB'               // Medium purple
+            };
+            const baseColor = colors[towerType] || 'hsl(120, 90%, 60%)';
+            
+            // NeonStroke hesapla - oyundaki gibi
+            let neonStroke;
+            if (towerType === 'basic') {
+                const hue = Math.floor(120 * hpRatio);
+                neonStroke = `hsl(${hue}, 90%, 60%)`;
+            } else if (towerType === 'rapid') {
+                const lightness = 40 + (20 * hpRatio);
+                neonStroke = `hsl(200, 90%, ${lightness}%)`; // Hep mavi
+            } else if (towerType === 'heavy') {
+                const lightness = 40 + (20 * hpRatio);
+                neonStroke = `hsl(0, 90%, ${lightness}%)`; // Hep kırmızı
+            } else {
+                neonStroke = baseColor;
+            }
+            
+            // Ring as health bar - oyundaki gibi çiz (ANA NEON HALQA - DAİRE FORMASINDA)
+            ctx.save();
+            const lineWidth = Math.max(2, Math.round(iconSize * 0.12));
+            const startAngle = -Math.PI / 2; // Start from top (12 o'clock)
+            const endAngle = startAngle + (Math.PI * 2 * hpRatio); // Full health - full circle
+            
+            // Draw the visible (healthy) part of the ring - ANA HALQA (rainbow'un dışında, daire formunda)
+            if (hpRatio > 0) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, baseR, startAngle, endAngle); // Daire çizimi
+                ctx.shadowColor = neonStroke;
+                ctx.shadowBlur = Math.max(10, Math.round(iconSize * 0.35));
+                ctx.lineWidth = lineWidth;
+                ctx.strokeStyle = neonStroke;
+                ctx.stroke();
+            }
+            ctx.restore();
+            
+            // Awaken rainbow halqası - oyundaki gibi (ANA HALQA'NIN İÇİNDE)
+            const hasAwakenAbility = ['basic', 'rapid', 'heavy', 'ice', 'flame', 'laser'].includes(towerType);
+            if (hasAwakenAbility) {
+                ctx.save();
+                const rainbowRadius = baseR * 0.55; // Ana halqadan küçük - içeride (daha sıkıştırılmış)
+                const rainbowColors = [
+                    '#ff0000', '#ff7700', '#ffaa00', '#ffff00',
+                    '#00ff00', '#00aaff', '#0000ff', '#7700ff'
+                ];
+                
+                // Rainbow segmentlerini çiz
+                for (let i = 0; i < 8; i++) {
+                    const startAngle2 = (i * Math.PI / 4);
+                    const endAngle2 = startAngle2 + (Math.PI / 4);
+                    
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, rainbowRadius, startAngle2, endAngle2);
+                    ctx.shadowColor = rainbowColors[i];
+                    ctx.shadowBlur = 6;
+                    ctx.lineWidth = Math.max(2, Math.round(iconSize * 0.06));
+                    ctx.strokeStyle = rainbowColors[i];
+                    ctx.stroke();
+                }
+                
+                // Rainbow'un kenarına daire çerçeve ekle - oyundaki gibi
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, rainbowRadius, 0, Math.PI * 2);
+                ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+                ctx.shadowBlur = 4;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; // Beyaz/şeffaf daire
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+            
+            // Barrel - oyundaki gibi çiz
+            let angle = 0; // Sağa doğru
+            const barrelLengths = {
+                heavy: 0.6,
+                rapid: 0.45,
+                ice: 0.5,
+                flame: 0.55,
+                laser: 0.55,
+                plasma: 0.65
+            };
+            const barrelLen = Math.max(8, Math.round(iconSize * (barrelLengths[towerType] || 0.5)));
+            const barrelW = Math.max(3, Math.round(iconSize * 0.12));
+            
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(angle);
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, -barrelW/2, barrelLen, barrelW);
+            ctx.fillStyle = neonStroke;
+            ctx.fillRect(barrelLen - 4, -barrelW/3, 4, (barrelW/3)*2);
+            ctx.restore();
+            
+            // CSS background ve border kaldır - sadece canvas kullanıyoruz
+            iconElement.style.background = 'transparent';
+            iconElement.style.backgroundImage = 'none';
+            iconElement.style.border = 'none';
+            
+            // Parent tower-option'ın CSS stilleri artık kutulu görünüm için kullanılıyor
+            // Bu yüzden burada override etmiyoruz - CSS'teki kutu stilleri geçerli olacak
+            
+            // Icon elementine canvas'ı ekle (mevcut içeriği temizle)
+            iconElement.innerHTML = '';
+            iconElement.appendChild(canvas);
+            
+            // Canvas stil ayarları - scale'e göre boyutlandır
+            canvas.style.width = `${iconSize}px`;
+            canvas.style.height = `${iconSize}px`;
+            canvas.style.display = 'block';
+            canvas.style.margin = '0 auto';
+            
+            // Icon element stil ayarları
+            iconElement.style.width = `${iconSize}px`;
+            iconElement.style.height = `${iconSize}px`;
+            iconElement.style.borderRadius = '50%';
+            iconElement.style.overflow = 'visible';
+        });
     }
     
     // Utility: find tower at position
@@ -1932,6 +2817,7 @@ class TowerDefenseGame {
             rangeUp: 0,
             damageUp: 0,
             rateUp: 0,
+            healthUp: 0,
             awakened: false,
             shielded: false,
             // Avtomatik can yeniləmə - global settings-dən yoxla
@@ -1961,8 +2847,7 @@ class TowerDefenseGame {
         
         // Deduct cost (money or stars)
         if (starCost > 0) {
-            this.stars -= starCost;
-            localStorage.setItem('towerDefenseStars', this.stars.toString());
+            this.changeCurrency(0, -starCost);
             this.debugTower(`Ulduz çıxıldı: ${starCost}, qalan: ${this.stars}`);
         } else {
             this.gameState.money -= cost;
@@ -2004,6 +2889,7 @@ class TowerDefenseGame {
     selectTower(tower) {
         this.debugTower(`Selecting tower: ${tower.type} at (${tower.x}, ${tower.y}) level ${tower.level}`);
         this.selectedTower = tower;
+        
         this.updateTowerInfo();
         // Keep the sidebar panel hidden; we use floating context instead
         const side = document.getElementById('selectedTowerInfo');
@@ -2048,17 +2934,60 @@ class TowerDefenseGame {
         // Fill dynamic values and enable/disable
         // Upgrade button removed
         
-        const btnSell = document.getElementById('ctxSell');
-        if (btnSell) {
-            const sellValue = Math.floor(this.towerCosts[this.selectedTower.type] / 3);
-            btnSell.textContent = `Sell ($${sellValue})`;
-        } else {
-            this.debugLog('ERROR: ctxSell button not found');
-        }
-
         // Stats buttons
         const t = this.selectedTower;
-        const limit = t.awakened ? 6 : 3;
+        
+        const btnSell = document.getElementById('ctxSell');
+        if (btnSell && t) {
+            const sellValue = Math.floor(this.towerCosts[t.type] / 3);
+            btnSell.textContent = `🪙 Sell ($${sellValue})`;
+            btnSell.disabled = false;
+            
+            // Event listener'ı her açılışta yeniden ekle (önceki listener'ları kaldır)
+            // Önce mevcut listener'ları kaldır - yalnız ilk dəfə və ya ehtiyac olduqda
+            let sellBtn = btnSell;
+            if (!btnSell.hasAttribute('data-listener-added')) {
+                const newSellBtn = btnSell.cloneNode(true);
+                btnSell.parentNode.replaceChild(newSellBtn, btnSell);
+                sellBtn = newSellBtn; // Yeni elementə işarə et
+                sellBtn.setAttribute('data-listener-added', 'true');
+            
+                // Yeni butona event listener ekle
+                sellBtn.addEventListener('click', (e) => {
+                console.log('[SELL] 🖱️ ctxSell button clicked!', e);
+                console.log('[SELL] Event details:', {
+                    target: e.target,
+                    currentTarget: e.currentTarget,
+                    button: e.button,
+                    type: e.type,
+                    bubbles: e.bubbles
+                });
+                try {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    console.log('[SELL] Calling sellTower()...');
+                    this.sellTower();
+                    console.log('[SELL] sellTower() completed, hiding context menu...');
+                    this.hideTowerContext();
+                } catch (error) {
+                    console.error('[SELL] ❌ ERROR:', error);
+                    alert(`Sell Xətası: ${error.message}`);
+                }
+                }, true); // capture phase'de dinle
+                console.log('[SHOW-CTX] ✅ ctxSell event listener added');
+            }
+        } else {
+            console.error('[SHOW-CTX] ERROR: ctxSell button not found or selectedTower is null');
+            if (!btnSell) console.error('[SHOW-CTX] btnSell is null');
+            if (!t) console.error('[SHOW-CTX] selectedTower is null');
+            this.debugLog('ERROR: ctxSell button not found or selectedTower is null');
+        }
+        // Awaken əvvəl: radius və sürət limit 3, damage limit 3
+        // Awaken sonrası: radius və sürət limit 3 (3/3), damage limit 8 (8/8)
+        const rangeLimit = t.awakened ? 3 : 3; // Awaken-dən sonra da 3/3
+        const damageLimit = t.awakened ? 8 : 3; // Awaken-dən sonra 8/8 (3 awaken əvvəl + 5 awaken sonrası)
+        const rateLimit = t.awakened ? 3 : 3; // Awaken-dən sonra da 3/3
         const rangeBtn = document.getElementById('ctxRange');
         const dmgBtn = document.getElementById('ctxDamage');
         const rateBtn = document.getElementById('ctxRate');
@@ -2071,31 +3000,52 @@ class TowerDefenseGame {
         const rCostEl = document.getElementById('ctxRangeCost');
         const dCostEl = document.getElementById('ctxDamageCost');
         const fCostEl = document.getElementById('ctxRateCost');
-        const rangeCost = 50, damageCost = 50, rateCost = 50;
+        const rangeCost = 50;
+        // Awaken sonrası yüksəltmələr üçün: Her level'de maliyet 1.5x artır (50 * 1.5^(level-3))
+        // Awaken əvvəl: Sabit 50 para
+        const currentDamageUp = t.damageUp || 0;
+        let damageCost = 50;
+        if (t.awakened && currentDamageUp >= 3) {
+            damageCost = Math.floor(50 * Math.pow(1.5, currentDamageUp - 3));
+        }
+        const rateCost = 50;
         const healBtn = document.getElementById('ctxHeal');
         const healCost = 20;
+        const healthUpgradeBtn = document.getElementById('ctxHealthUpgrade');
+        const healthUp = t.healthUp || 0;
+        const healthUpgradeCost = Math.floor(50 * Math.pow(1.5, healthUp));
         const shieldBtn = document.getElementById('ctxShield');
         const shieldCost = 50;
         if (rVal) rVal.textContent = String(t.range);
         if (dVal) dVal.textContent = String(t.damage);
         if (fVal) fVal.textContent = `${Math.round(1000/ t.fireRate * 10)/10}/s`;
-        if (rUp) rUp.textContent = `${t.rangeUp||0}/${limit}`;
-        if (dUp) dUp.textContent = `${t.damageUp||0}/${limit}`;
-        if (fUp) fUp.textContent = `${t.rateUp||0}/${limit}`;
+        if (rUp) rUp.textContent = `${t.rangeUp||0}/${rangeLimit}`;
+        if (dUp) dUp.textContent = `${t.damageUp||0}/${damageLimit}`;
+        if (fUp) fUp.textContent = `${t.rateUp||0}/${rateLimit}`;
         if (rCostEl) rCostEl.textContent = String(rangeCost);
         if (dCostEl) dCostEl.textContent = String(damageCost);
         if (fCostEl) fCostEl.textContent = String(rateCost);
-        if (rangeBtn) rangeBtn.disabled = (t.rangeUp||0) >= limit || this.gameState.money < rangeCost;
-        if (dmgBtn) dmgBtn.disabled = (t.damageUp||0) >= limit || this.gameState.money < damageCost;
-        if (rateBtn) rateBtn.disabled = (t.rateUp||0) >= limit || this.gameState.money < rateCost;
+        // Awaken olmuş kulelerde range ve rate yükseltmesi yapılamaz
+        if (rangeBtn) rangeBtn.disabled = t.awakened || (t.rangeUp||0) >= rangeLimit || this.gameState.money < rangeCost;
+        if (dmgBtn) dmgBtn.disabled = (t.damageUp||0) >= damageLimit || this.gameState.money < damageCost;
+        if (rateBtn) rateBtn.disabled = t.awakened || (t.rateUp||0) >= rateLimit || this.gameState.money < rateCost;
         if (healBtn) {
             const currentHealth = Math.floor(t.health || t.maxHealth || 100);
             const maxHealth = t.maxHealth || 100;
-            healBtn.textContent = `🩹 ${currentHealth}/${maxHealth} — $${healCost}`;
-            healBtn.disabled = (t.health >= t.maxHealth) || this.gameState.money < healCost;
+            // Tam doldurmaq üçün pul hesabı: hər 100 can üçün 20 pul
+            const maxHealCost = Math.floor((maxHealth / 100) * 20);
+            healBtn.textContent = `🩹 ${currentHealth}/${maxHealth} — $${maxHealCost}`;
+            healBtn.disabled = (t.health >= t.maxHealth) || this.gameState.money < maxHealCost;
+        }
+        if (healthUpgradeBtn) {
+            const currentHealth = Math.floor(t.health || t.maxHealth || 100);
+            const maxHealth = t.maxHealth || 100;
+            healthUpgradeBtn.textContent = `❤️ Can: ${maxHealth} (+50) — $${healthUpgradeCost}`;
+            healthUpgradeBtn.disabled = this.gameState.money < healthUpgradeCost;
         }
         if (shieldBtn) {
-            const canShield = t.awakened && (t.rangeUp||0) >= 6 && (t.damageUp||0) >= 6 && (t.rateUp||0) >= 6 && !t.shielded && this.diamonds >= shieldCost;
+            // Qalxan aktivləşməsi: radius 3/3, atış gücü 8/8, sürət 3/3
+            const canShield = t.awakened && (t.rangeUp||0) >= 3 && (t.damageUp||0) >= 8 && (t.rateUp||0) >= 3 && !t.shielded && this.diamonds >= shieldCost;
             shieldBtn.disabled = !canShield;
             shieldBtn.textContent = t.shielded ? '🛡️ Aktiv' : '🛡️ (💎50)';
         }
@@ -2142,13 +3092,101 @@ class TowerDefenseGame {
                 autoHealToggleBtn.textContent = '🔄 Avto Can: Kapalı';
                 autoHealToggleBtn.style.background = 'linear-gradient(45deg, #4a90e2, #357abd)';
             }
+            
+            // Event listener'ı her açılışta yeniden ekle (önceki listener'ları kaldır)
+            // Köhnə listener-ları silmək üçün clone et və əvəz et
+            const newToggleBtn = autoHealToggleBtn.cloneNode(true);
+            autoHealToggleBtn.parentNode.replaceChild(newToggleBtn, autoHealToggleBtn);
+            
+            // Yeni düyməyə event listener əlavə et
+            newToggleBtn.addEventListener('click', (e) => {
+                console.log('[AUTO-HEAL] 🖱️ ctxAutoHealToggle button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                try {
+                    console.log('[AUTO-HEAL] Calling toggleAutoHeal()...');
+                    this.toggleAutoHeal();
+                    console.log('[AUTO-HEAL] toggleAutoHeal() completed');
+                } catch (error) {
+                    console.error('[AUTO-HEAL] ❌ ERROR:', error);
+                    alert(`Auto-Heal Toggle Xətası: ${error.message}`);
+                }
+            }, false); // Bubble phase (capture deyil, ki context menu listener-ına mane olmasın)
+            console.log('[SHOW-CTX] ✅ ctxAutoHealToggle event listener added');
         }
         if (autoHealSettingsDiv) {
             autoHealSettingsDiv.style.display = t.autoHealEnabled ? 'flex' : 'none';
         }
-        if (autoHealThresholdInput && t.autoHealThreshold) {
-            autoHealThresholdInput.value = t.autoHealThreshold;
+        if (autoHealThresholdInput) {
+            // Həmişə threshold dəyərini göstər (varsa və ya default 5)
+            // Maksimum limiti qüllənin maxHealth-inə görə təyin et
+            const maxThreshold = t.maxHealth || 100;
+            
+            // Input-u tam yenidən yarat (max atributunu məcburi yeniləmək üçün)
+            const parent = autoHealThresholdInput.parentElement;
+            const oldValue = autoHealThresholdInput.value;
+            const newInput = document.createElement('input');
+            newInput.type = 'number';
+            newInput.id = 'ctxAutoHealThreshold';
+            newInput.min = '1';
+            newInput.max = maxThreshold.toString();
+            newInput.value = Math.min(Math.max(1, t.autoHealThreshold || parseInt(oldValue) || 5), maxThreshold).toString();
+            newInput.style.cssText = 'width:60px; padding:4px; background:rgba(0,0,0,0.5); border:1px solid #00bcd4; border-radius:4px; color:#fff; font-size:12px;';
+            
+            // Köhnə input-u yeni ilə əvəz et
+            if (parent && autoHealThresholdInput.parentElement) {
+                parent.replaceChild(newInput, autoHealThresholdInput);
+            }
+            
+            // Label-i sil (artıq lazım deyil)
+            const parentDiv = newInput.parentElement;
+            const thresholdLabel = parentDiv?.querySelector('.threshold-label');
+            if (thresholdLabel) {
+                thresholdLabel.remove();
+            }
+            
+            // Təsdiq düyməsinin mətnini yenilə: "100 (min:) Təsdiq"
+            const confirmButton = parentDiv?.querySelector('#ctxAutoHealConfirm');
+            if (confirmButton) {
+                const thresholdValue = newInput.value || Math.min(t.autoHealThreshold || 5, maxThreshold);
+                confirmButton.textContent = `${thresholdValue} (min:) Təsdiq`;
+                
+                // Input dəyəri dəyişəndə düymə mətnini yenilə
+                newInput.addEventListener('input', () => {
+                    const value = newInput.value || Math.min(t.autoHealThreshold || 5, maxThreshold);
+                    confirmButton.textContent = `${value} (min:) Təsdiq`;
+                });
+            }
         }
+        
+        // Auto-heal confirm butonu
+        const autoHealConfirmBtn = document.getElementById('ctxAutoHealConfirm');
+        if (autoHealConfirmBtn) {
+            // Event listener'ı her açılışta yeniden ekle (köhnə listener-ları silmək üçün)
+            const newConfirmBtn = autoHealConfirmBtn.cloneNode(true);
+            autoHealConfirmBtn.parentNode.replaceChild(newConfirmBtn, autoHealConfirmBtn);
+            
+            // Yeni düyməyə event listener əlavə et
+            newConfirmBtn.addEventListener('click', (e) => {
+                console.log('[AUTO-HEAL] 🖱️ ctxAutoHealConfirm button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                try {
+                    console.log('[AUTO-HEAL] Calling confirmAutoHeal()...');
+                    this.confirmAutoHeal();
+                    console.log('[AUTO-HEAL] confirmAutoHeal() completed');
+                } catch (error) {
+                    console.error('[AUTO-HEAL] ❌ ERROR:', error);
+                    alert(`Auto-Heal Confirm Xətası: ${error.message}`);
+                }
+            }, false); // Bubble phase (capture deyil, ki context menu listener-ına mane olmasın)
+            console.log('[SHOW-CTX] ✅ ctxAutoHealConfirm event listener added');
+        }
+        
+        // Context menu listener-ını tamamilə sil - button-lar öz event-ləri ilə işləməlidir
+        // Context menu-dəki button-ların stopPropagation-i kifayətdir
         
         ctx.style.display = 'flex';
         this.debugLog(`Context menu shown at (${left}, ${top}) for tower at (${tower.x}, ${tower.y})`);
@@ -2179,6 +3217,10 @@ class TowerDefenseGame {
     upgradeRange() {
         if (!this.selectedTower) return;
         const t = this.selectedTower;
+        
+        // Awaken olmuş kulelerde range yükseltmesi yapılamaz
+        if (t.awakened) return;
+        
         if (t.rangeUp >= 3 && !t.awakened) return;
         const cost = 50;
         if (this.gameState.money < cost) return;
@@ -2193,11 +3235,51 @@ class TowerDefenseGame {
     upgradeDamage() {
         if (!this.selectedTower) return;
         const t = this.selectedTower;
-        if (t.damageUp >= 3 && !t.awakened) return;
-        const cost = 50;
+        
+        // Awaken əvvəl: maksimum 3 yüksəltmə
+        // Awaken sonrası: maksimum 5 yüksəltmə (toplam 8)
+        if (!t.awakened && (t.damageUp || 0) >= 3) return;
+        if (t.awakened && (t.damageUp || 0) >= 8) return;
+        
+        const currentDamageUp = t.damageUp || 0;
+        
+        // Awaken sonrası yüksəltmələr üçün: Her level'de maliyet 1.5x artır (50 * 1.5^(level-3))
+        // Awaken əvvəl: Sabit 50 para
+        // Awaken sonrası: 50 * 1.5^(currentDamageUp - 3)
+        let cost = 50;
+        if (t.awakened && currentDamageUp >= 3) {
+            cost = Math.floor(50 * Math.pow(1.5, currentDamageUp - 3));
+        }
+        
         if (this.gameState.money < cost) return;
-        t.damageUp = (t.damageUp || 0) + 1;
-        t.damage = Math.floor(t.damage * 1.2);
+        
+        t.damageUp = currentDamageUp + 1;
+        
+        // Awaken əvvəl: Mevcut %20 artış (%1.2x)
+        // Awaken sonrası: Hər yüksəltmə sabit 32 damage əlavə edir (toplam 200 olmaq üçün)
+        if (t.awakened && currentDamageUp >= 3) {
+            // Awaken sonrası: hər yüksəltmə +32 damage
+            // Awaken zamanı damage ~34 olur, sonra 5 yüksəltmə: 34 + 5*32 = 194 ≈ 200
+            // Daha dəqiq: awaken zamanı damage * 1.2 olur, yəni ~34 * 1.2 = 40.8
+            // Sonra 5 yüksəltmə: 40.8 + 5*32 = 200.8 ≈ 200
+            const baseDamageAfterAwaken = this.getTowerDamage(t.type);
+            // İlk 3 yüksəltmə damage-ini hesabla (awaken əvvəl)
+            let damageAfterFirst3 = baseDamageAfterAwaken;
+            for (let i = 0; i < 3; i++) {
+                damageAfterFirst3 = Math.floor(damageAfterFirst3 * 1.2);
+            }
+            // Awaken zamanı damage * 1.2 olur
+            const damageAfterAwaken = Math.floor(damageAfterFirst3 * 1.2);
+            // Awaken sonrası yüksəltmələr: hər biri +32 damage
+            // currentDamageUp = 3 olduqda, bu awaken əvvəl 3-cü yüksəltmədir, amma awaken sonrası yüksəltmə edirik
+            // currentDamageUp = 4, 5, 6, 7, 8 (awaken sonrası)
+            // currentDamageUp = 3 olduqda, awaken sonrası ilk yüksəltmədir, yəni awakenUpgrades = 1
+            const awakenUpgrades = currentDamageUp - 2; // 3->1, 4->2, 5->3, 6->4, 7->5, 8->6
+            t.damage = damageAfterAwaken + (awakenUpgrades * 32);
+        } else {
+            t.damage = Math.floor(t.damage * 1.2);
+        }
+        
         this.gameState.money -= cost;
         this.updateUI();
         this.showTowerContextAt(t);
@@ -2206,6 +3288,10 @@ class TowerDefenseGame {
     upgradeFireRate() {
         if (!this.selectedTower) return;
         const t = this.selectedTower;
+        
+        // Awaken olmuş kulelerde fire rate yükseltmesi yapılamaz
+        if (t.awakened) return;
+        
         if (t.rateUp >= 3 && !t.awakened) return;
         const cost = 50;
         if (this.gameState.money < cost) return;
@@ -2222,8 +3308,7 @@ class TowerDefenseGame {
         if (t.awakened) return;
         const diamondCost = 20;
         if (this.diamonds < diamondCost) return;
-        this.diamonds -= diamondCost;
-        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        this.changeCurrency(-diamondCost, 0);
         t.awakened = true;
         // immediate modest boost
         t.damage = Math.floor(t.damage * 1.2);
@@ -2235,48 +3320,112 @@ class TowerDefenseGame {
 
     healTower() {
         if (!this.selectedTower) return;
-        const cost = 20;
-        if (this.gameState.money < cost) return;
         const t = this.selectedTower;
-        t.health = t.maxHealth;
+        // Tam doldurmaq üçün pul hesabı: hər 100 can üçün 20 pul
+        const maxHealth = t.maxHealth || 100;
+        const cost = Math.floor((maxHealth / 100) * 20);
+        if (this.gameState.money < cost) return;
+        t.health = maxHealth;
+        this.gameState.money -= cost;
+        this.updateUI();
+        this.showTowerContextAt(t);
+    }
+
+    upgradeHealth() {
+        if (!this.selectedTower) return;
+        const t = this.selectedTower;
+        const healthUp = t.healthUp || 0;
+        
+        // Her yükseltme için maliyet: 50 * 1.5^(level-1)
+        const cost = Math.floor(50 * Math.pow(1.5, healthUp));
+        
+        if (this.gameState.money < cost) return;
+        
+        // Can artır: Her yükseltme için +50 can
+        t.maxHealth = (t.maxHealth || 100) + 50;
+        t.health += 50; // Mevcut canı da artır
+        t.healthUp = healthUp + 1;
+        
         this.gameState.money -= cost;
         this.updateUI();
         this.showTowerContextAt(t);
     }
     
     toggleAutoHeal() {
-        if (!this.selectedTower) return;
+        console.log('[AUTO-HEAL] ⚡ toggleAutoHeal() called');
+        
+        if (!this.selectedTower) {
+            console.error('[AUTO-HEAL] ❌ Seçili kule yok!');
+            alert('❌ Seçili kule yok! Lütfen önce bir kule seçin.');
+            return;
+        }
+        
         const t = this.selectedTower;
-        t.autoHealEnabled = !t.autoHealEnabled;
+        const oldState = t.autoHealEnabled || false;
+        t.autoHealEnabled = !oldState;
+        
+        console.log(`[AUTO-HEAL] ✅ Auto-heal durumu değişti: ${oldState} -> ${t.autoHealEnabled}`);
         
         // Əgər aktiv edilirsə, settings-i göstər
         const autoHealSettingsDiv = document.getElementById('ctxAutoHealSettings');
         if (autoHealSettingsDiv) {
             autoHealSettingsDiv.style.display = t.autoHealEnabled ? 'flex' : 'none';
+            console.log(`[AUTO-HEAL] Settings div display: ${autoHealSettingsDiv.style.display}`);
+        } else {
+            console.error('[AUTO-HEAL] ❌ ctxAutoHealSettings element bulunamadı!');
+            alert('❌ ctxAutoHealSettings element bulunamadı!');
         }
         
         // Əgər deaktiv edilirsə, threshold-u sıfırlama
         if (!t.autoHealEnabled) {
             t.autoHealThreshold = 5;
+            console.log('[AUTO-HEAL] Auto-heal deaktif, threshold = 5 olarak sıfırlandı');
         }
         
         this.showTowerContextAt(t);
+        console.log(`[AUTO-HEAL] ✅✅✅ Auto-heal toggle tamamlandı: ${t.autoHealEnabled}`);
     }
     
     confirmAutoHeal() {
-        if (!this.selectedTower) return;
-        const thresholdInput = document.getElementById('ctxAutoHealThreshold');
-        if (!thresholdInput) return;
+        console.log('[AUTO-HEAL] ⚡ confirmAutoHeal() called');
         
-        const threshold = parseInt(thresholdInput.value) || 5;
-        if (threshold < 1 || threshold > 100) {
-            this.showTooltip('Can dəyəri 1-100 arasında olmalıdır!', 'error');
+        if (!this.selectedTower) {
+            console.error('[AUTO-HEAL] ❌ confirmAutoHeal: Seçili kule yok!');
+            this.showTooltip('❌ Seçili kule yok!', 'error');
             return;
         }
         
+        const thresholdInput = document.getElementById('ctxAutoHealThreshold');
+        if (!thresholdInput) {
+            console.error('[AUTO-HEAL] ❌ ctxAutoHealThreshold input bulunamadı!');
+            this.showTooltip('❌ Threshold input bulunamadı!', 'error');
+            return;
+        }
+        
+        const threshold = parseInt(thresholdInput.value) || 5;
+        console.log(`[AUTO-HEAL] Threshold değeri: ${threshold}`);
+        
         const t = this.selectedTower;
+        
+        // Limit yoxlaması: minimum 1, maksimum qüllənin maxHealth-i
+        if (threshold < 1) {
+            console.error(`[AUTO-HEAL] ❌ Geçersiz threshold: ${threshold}`);
+            this.showTooltip('Can dəyəri minimum 1 olmalıdır!', 'error');
+            return;
+        }
+        
+        const maxThreshold = t.maxHealth || 100;
+        if (threshold > maxThreshold) {
+            console.error(`[AUTO-HEAL] ❌ Geçersiz threshold: ${threshold}, max: ${maxThreshold}`);
+            this.showTooltip(`Can dəyəri maksimum ${maxThreshold} olmalıdır!`, 'error');
+            return;
+        }
+        const oldThreshold = t.autoHealThreshold || 5;
         t.autoHealThreshold = threshold;
         t.autoHealEnabled = true;
+        
+        console.log(`[AUTO-HEAL] ✅ Threshold güncellendi: ${oldThreshold} -> ${threshold}`);
+        console.log(`[AUTO-HEAL] ✅ Tower ${t.type} at (${t.x}, ${t.y}) auto-heal activated: threshold=${threshold}`);
         
         // Settings-i gizlət
         const autoHealSettingsDiv = document.getElementById('ctxAutoHealSettings');
@@ -2284,20 +3433,50 @@ class TowerDefenseGame {
             autoHealSettingsDiv.style.display = 'none';
         }
         
+        // Context menu-nu yenilə
         this.showTowerContextAt(t);
+        
+        // Success mesajı
+        this.showTooltip(`✅ Avto-can aktiv edildi! Can dəyəri: ${threshold}`, 'success', 2000);
+        console.log(`[AUTO-HEAL] ✅✅✅ confirmAutoHeal tamamlandı: threshold=${threshold}`);
     }
     
     showGlobalAutoHealPanel() {
+        console.log('[AUTO-HEAL] ⚡ showGlobalAutoHealPanel() called');
         const panel = document.getElementById('globalAutoHealPanel');
-        if (!panel) return;
+        if (!panel) {
+            console.error('[AUTO-HEAL] ❌ globalAutoHealPanel NOT FOUND!');
+            return;
+        }
         
         // Paneli göstər/gizlət
-        const isVisible = panel.style.display !== 'none';
+        const isVisible = panel.style.display !== 'none' && panel.style.display !== '';
         panel.style.display = isVisible ? 'none' : 'flex';
+        
+        console.log(`[AUTO-HEAL] Panel visibility: ${isVisible ? 'hidden' : 'visible'}`);
         
         if (!isVisible) {
             // Paneli göstər, qüllələri yüklə
             this.updateGlobalAutoHealTowersList();
+            
+            // Global auto-heal threshold input-u və label-i yenilə
+            const thresholdInput = document.getElementById('globalAutoHealThreshold');
+            const thresholdLabel = panel.querySelector('label');
+            
+            if (thresholdInput && this.towers.length > 0) {
+                // Ən böyük qüllənin maxHealth-ini tap
+                const maxHealth = Math.max(...this.towers.map(t => t.maxHealth || 100));
+                
+                // Input-u yenilə
+                thresholdInput.removeAttribute('max');
+                thresholdInput.setAttribute('max', maxHealth.toString());
+                thresholdInput.max = maxHealth;
+                
+                // Label-i yenilə
+                if (thresholdLabel) {
+                    thresholdLabel.textContent = `Can Dəyəri (1-${maxHealth})`;
+                }
+            }
         }
     }
     
@@ -2401,12 +3580,25 @@ class TowerDefenseGame {
     }
     
     confirmGlobalAutoHeal() {
+        console.log('[AUTO-HEAL] ⚡ confirmGlobalAutoHeal() called');
         const thresholdInput = document.getElementById('globalAutoHealThreshold');
-        if (!thresholdInput) return;
+        if (!thresholdInput) {
+            console.error('[AUTO-HEAL] ❌ globalAutoHealThreshold input NOT FOUND!');
+            return;
+        }
         
         const threshold = parseInt(thresholdInput.value) || 5;
-        if (threshold < 1 || threshold > 100) {
-            this.showTooltip('Can dəyəri 1-100 arasında olmalıdır!', 'error');
+        console.log(`[AUTO-HEAL] Threshold value: ${threshold}`);
+        
+        // Ən böyük qüllənin maxHealth-ini tap
+        let maxThreshold = 100;
+        if (this.towers.length > 0) {
+            const maxHealth = Math.max(...this.towers.map(t => t.maxHealth || 100));
+            maxThreshold = maxHealth;
+        }
+        
+        if (threshold < 1 || threshold > maxThreshold) {
+            this.showTooltip(`Can dəyəri 1-${maxThreshold} arasında olmalıdır!`, 'error');
             return;
         }
         
@@ -2415,17 +3607,37 @@ class TowerDefenseGame {
         
         // Seçilən qüllə tiplərini tap
         const checkboxes = document.querySelectorAll('[id^="towerTypeAutoHeal_"]');
+        console.log(`[AUTO-HEAL] Found ${checkboxes.length} checkboxes`);
         checkboxes.forEach(checkbox => {
             if (checkbox.checked) {
                 const towerType = checkbox.dataset.towerType;
                 if (towerType) {
                     selectedTypes.push(towerType);
+                    console.log(`[AUTO-HEAL] Selected tower type: ${towerType}`);
                 }
             }
         });
         
+        // Əgər heç bir qüllə tipi seçilməyibsə, bütün qüllələrin can yeniləməsini deaktiv et
         if (selectedTypes.length === 0) {
-            this.showTooltip('Heç bir qüllə tipi seçilməyib!', 'error');
+            console.log('[AUTO-HEAL] ❌ No tower types selected - deactivating all auto-heal');
+            // Bütün qüllələrin auto-heal-ini deaktiv et
+            this.towers.forEach(tower => {
+                tower.autoHealEnabled = false;
+                tower.autoHealThreshold = null;
+            });
+            // Global auto-heal settings-i təmizlə
+            this.globalAutoHealSettings = {};
+            
+            // Paneli gizlət
+            const panel = document.getElementById('globalAutoHealPanel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+            
+            // UI-u yenilə
+            this.updateUI();
+            this.showTooltip('Bütün qüllələrin avtomatik can yeniləməsi deaktiv edildi!', 'info');
             return;
         }
         
@@ -2435,6 +3647,7 @@ class TowerDefenseGame {
                 enabled: true,
                 threshold: threshold
             };
+            console.log(`[AUTO-HEAL] ✅ Enabled auto-heal for type: ${towerType}, threshold: ${threshold}`);
         });
         
         // Seçilən tiplərdə olan bütün qüllələrə avtomatik can yeniləməni aktiv et
@@ -2443,8 +3656,11 @@ class TowerDefenseGame {
                 tower.autoHealEnabled = true;
                 tower.autoHealThreshold = threshold;
                 activatedCount++;
+                console.log(`[AUTO-HEAL] ✅ Activated auto-heal for tower ${tower.type} at (${tower.x}, ${tower.y}), health: ${tower.health}/${tower.maxHealth}, threshold: ${threshold}`);
             }
         });
+        
+        console.log(`[AUTO-HEAL] ✅✅✅ Total ${activatedCount} towers activated with auto-heal`);
         
         // Paneli gizlət
         const panel = document.getElementById('globalAutoHealPanel');
@@ -2473,12 +3689,12 @@ class TowerDefenseGame {
         if (!this.selectedTower) return;
         const t = this.selectedTower;
         if (!t.awakened) return;
-        const eligible = (t.rangeUp||0) >= 6 && (t.damageUp||0) >= 6 && (t.rateUp||0) >= 6;
+        // Qalxan aktivləşməsi: radius 3/3, atış gücü 8/8, sürət 3/3
+        const eligible = (t.rangeUp||0) >= 3 && (t.damageUp||0) >= 8 && (t.rateUp||0) >= 3;
         if (!eligible || t.shielded) return;
         const diamondCost = 50;
         if (this.diamonds < diamondCost) return;
-        this.diamonds -= diamondCost;
-        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        this.changeCurrency(-diamondCost, 0);
         t.shielded = true;
         this.updateUI();
         this.showTowerContextAt(t);
@@ -2567,41 +3783,58 @@ class TowerDefenseGame {
     }
     
     sellTower() {
-        // console.log(`\n=== KULE SATILIYOR (OYUNCU TARAFINDAN) ===`);
-        this.debugTower(`=== OYUNCU KULE SATIYOR ===`);
+        console.log('[SELL] ⚡ sellTower() called');
+        console.log(`[SELL] selectedTower: ${this.selectedTower ? this.selectedTower.type : 'null'}`);
+        console.log(`[SELL] towers array length: ${this.towers.length}`);
+        
         if (!this.selectedTower) {
-            this.debugError(`Kule satılamıyor: Seçili kule yok`);
+            console.error('[SELL] ❌ Kule satılamıyor: Seçili kule yok');
+            this.showTooltip('❌ Seçili kule yok!', 'error');
+            alert('❌ Seçili kule yok! Lütfen önce bir kule seçin.');
             return;
         }
         
-        this.debugTower(`OYUNCU kule satıyor: ${this.selectedTower.type} (${this.selectedTower.x}, ${this.selectedTower.y})`);
+        const tower = this.selectedTower;
+        console.log(`[SELL] ✅ Seçili kule: ${tower.type} (${tower.x}, ${tower.y})`);
         
         // Calculate sell value as 1/3 of original cost
-        const originalCost = this.towerCosts[this.selectedTower.type];
-        const sellValue = Math.floor(originalCost / 3);
+        const originalCost = this.towerCosts[tower.type];
+        console.log(`[SELL] towerCosts[${tower.type}] = ${originalCost}`);
         
-        this.debugTower(`Orijinal maliyet: $${originalCost}, Satış değeri: $${sellValue}`);
-        this.debugTower(`Satış öncesi - Para: $${this.gameState.money}, Kuleler: ${this.towers.length}`);
+        if (originalCost === undefined || originalCost === null) {
+            console.error(`[SELL] ❌ Kule tipi maliyet tablosunda bulunamadı: ${tower.type}`);
+            this.showTooltip(`❌ Kule tipi bulunamadı: ${tower.type}`, 'error');
+            alert(`❌ Kule tipi bulunamadı: ${tower.type}\n\ntowerCosts: ${JSON.stringify(this.towerCosts)}`);
+            return;
+        }
+        
+        const sellValue = Math.floor(originalCost / 3);
+        console.log(`[SELL] Orijinal maliyet: $${originalCost}, Satış değeri: $${sellValue}`);
+        console.log(`[SELL] Satış öncesi - Para: $${this.gameState.money}, Kuleler: ${this.towers.length}`);
+        
+        const index = this.towers.indexOf(tower);
+        if (index === -1) {
+            console.error('[SELL] ❌ Kule kule dizisinde bulunamadı!');
+            this.showTooltip('❌ Kule dizisinde bulunamadı!', 'error');
+            alert('❌ Kule dizisinde bulunamadı!');
+            return;
+        }
+        
+        console.log(`[SELL] ✅ Kule dizisinde bulundu (index: ${index}), siliniyor...`);
         
         this.gameState.money += sellValue;
         this.gameState.score += sellValue;
-        
-        const index = this.towers.indexOf(this.selectedTower);
-        if (index === -1) {
-            this.debugError(`Kule kule dizisinde bulunamadı!`);
-            return;
-        }
-        
-        this.debugTower(`OYUNCU kuleyi siliyor (index: ${index})...`);
         this.towers.splice(index, 1);
         
-        this.debugSuccess(`OYUNCU kuleyi başarıyla sattı - Para: $${this.gameState.money}, Kuleler: ${this.towers.length}`);
+        console.log(`[SELL] ✅✅✅ Kule başarıyla satıldı - Para: $${this.gameState.money}, Kuleler: ${this.towers.length}`);
+        this.showTooltip(`✅ Kule satıldı: +$${sellValue}`, 'success');
         
         this.deselectTower();
         this.updateUI();
         this.recomputePath();
-        this.retargetEnemiesToNewPath();
-        // console.log(`=== OYUNCU KULE SATIŞI TAMAMLANDI ===\n`);
+        if (this.retargetEnemiesToNewPath) {
+            this.retargetEnemiesToNewPath();
+        }
     }
     
     updateTowerInfo() {
@@ -2674,7 +3907,7 @@ class TowerDefenseGame {
     }
     
     startWave() {
-        if (this.waveInProgress || this.gameState.gameOver) return;
+        if (this.waveInProgress || this.gameState.gameOver || this.isPaused) return;
         
         this.waveInProgress = true;
         this.currentWaveEnemies = 0;
@@ -2690,13 +3923,45 @@ class TowerDefenseGame {
         document.getElementById('startWave').disabled = true;
     }
     
-    togglePause() {
-        this.gameState.isPaused = !this.gameState.isPaused;
-        const button = document.getElementById('pauseGame');
-        button.textContent = this.gameState.isPaused ? 'Resume' : 'Pause';
-        // Update UI to enable/disable grid expansion buttons
-        this.updateUI();
+    pauseGame() {
+        if (this.isPaused || this.gameState.gameOver) return;
+        
+        this.isPaused = true;
+        this.pauseStartTime = Date.now();
+        
+        // Update UI buttons
+        const pauseBtn = document.getElementById('pauseGame');
+        const resumeBtn = document.getElementById('resumeGame');
+        if (pauseBtn) pauseBtn.style.display = 'none';
+        if (resumeBtn) resumeBtn.style.display = 'block';
+        
+        this.showTooltip('⏸️ Oyun dayandırıldı', 'info', 2000);
     }
+    
+    resumeGame() {
+        if (!this.isPaused) return;
+        
+        // Calculate paused time and add to total
+        if (this.pauseStartTime) {
+            const pausedTime = Date.now() - this.pauseStartTime;
+            this.totalPausedTime += pausedTime;
+            this.pauseStartTime = null;
+        }
+        
+        this.isPaused = false;
+        
+        // Update last update time to prevent jump
+        this.lastUpdateTime = Date.now();
+        
+        // Update UI buttons
+        const pauseBtn = document.getElementById('pauseGame');
+        const resumeBtn = document.getElementById('resumeGame');
+        if (pauseBtn) pauseBtn.style.display = 'block';
+        if (resumeBtn) resumeBtn.style.display = 'none';
+        
+        this.showTooltip('▶️ Oyun davam edir', 'success', 2000);
+    }
+    
     
     spawnEnemy() {
         // Boss (X) spawn chance: every 10 waves or 5% chance otherwise
@@ -2767,9 +4032,28 @@ class TowerDefenseGame {
         return finalSpeed * Math.max(0.75, Math.min(2, this.scale));
     }
 
-    getEnemyDamage(type) {
+    getEnemyDamage(type, enemyLevel = null) {
+        // Base damage-lər
         const dmg = { basic: 2, fast: 1, tank: 3, boss: 5 };
-        return dmg[type] || 2;
+        let baseDamage = dmg[type] || 2;
+        
+        // Əgər enemyLevel verilmişdirsə, onu istifadə et, yoxsa currentLevel-i istifadə et
+        const level = enemyLevel !== null ? enemyLevel : (this.currentLevel || 1);
+        
+        // 10-cu level-a qədər minimum 4 atış gücü
+        // 10-cu level-dən sonra hər level üçün atış gücü +1 artır
+        // Məsələn: 10-cu level-a qədər = 4, 11-ci level = 5, 12-ci level = 6, 57-ci level = 51
+        if (level <= 10) {
+            // 10-cu level-a qədər minimum 4 olmalıdır
+            baseDamage = Math.max(baseDamage, 4);
+        } else {
+            // 11-ci level-dən sonra hər level üçün +1 bonus
+            // 10-cu level-də base = 4, sonra hər level-də +1
+            const bonus = level - 10; // 10-cu level-dən sonra neçə level keçib
+            baseDamage = Math.max(baseDamage, 4) + bonus;
+        }
+        
+        return baseDamage;
     }
 
     getEnemyRadius(type) {
@@ -2792,6 +4076,10 @@ class TowerDefenseGame {
     }
     
     updateEnemies() {
+        if (this.gameState.gameOver) {
+            return;
+        }
+        
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i];
             if (this.path.length < 2) continue;
@@ -2847,7 +4135,7 @@ class TowerDefenseGame {
                 if (nearestTower.shielded) {
                     enemy.nextAttackAt = Date.now() + 1000; // shield absorbs attack
                 } else {
-                const damage = this.getEnemyDamage(enemy.type);
+                const damage = this.getEnemyDamage(enemy.type, enemy.level);
                 const oldHealth = nearestTower.health || nearestTower.maxHealth || 100;
                 nearestTower.health = Math.max(0, oldHealth - damage);
                 
@@ -2983,6 +4271,10 @@ class TowerDefenseGame {
     }
     
     updateEnemyBullets() {
+        if (this.gameState.gameOver) {
+            return;
+        }
+        
         for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
             const bullet = this.enemyBullets[i];
             // TTL safeguard
@@ -3007,6 +4299,10 @@ class TowerDefenseGame {
     }
     
     updateTowers() {
+        if (this.gameState.gameOver) {
+            return;
+        }
+        
         for (const tower of this.towers) {
             // Find target
             tower.target = this.findTarget(tower);
@@ -3020,12 +4316,31 @@ class TowerDefenseGame {
             }
             
             // Avtomatik can yeniləmə
-            if (tower.autoHealEnabled && tower.health <= tower.autoHealThreshold && tower.health < tower.maxHealth) {
-                const healCost = 20;
-                if (this.gameState.money >= healCost) {
-                    tower.health = tower.maxHealth;
-                    this.gameState.money -= healCost;
-                    this.updateUI();
+            if (tower.autoHealEnabled) {
+                // Her frame kontrol etme, sadece gerçekten ihtiyaç olduğunda log yaz
+                if (tower.health <= tower.autoHealThreshold && tower.health < tower.maxHealth) {
+                    // Pul hesabı: hər 100 can üçün 20 pul
+                    // Formula: (maxHealth / 100) * 20
+                    const healCost = Math.floor((tower.maxHealth / 100) * 20);
+                    console.log(`[AUTO-HEAL] ✅ Healing condition met! Tower: ${tower.type} at (${tower.x}, ${tower.y}), health=${tower.health}, threshold=${tower.autoHealThreshold}, maxHealth=${tower.maxHealth}, healCost=$${healCost}, money=$${this.gameState.money}`);
+                    
+                    if (this.gameState.money >= healCost) {
+                        const oldHealth = tower.health;
+                        // Tam doldur: canı maksimuma çatdır
+                        tower.health = tower.maxHealth;
+                        this.gameState.money -= healCost;
+                        this.updateUI();
+                        console.log(`🩹 [AUTO-HEAL] ✅✅✅ ${tower.type} tower healed: ${oldHealth} -> ${tower.health}/${tower.maxHealth}, cost: $${healCost}, money: $${this.gameState.money}`);
+                    } else {
+                        console.log(`💰 [AUTO-HEAL] ❌ Not enough money (need $${healCost}, have $${this.gameState.money})`);
+                    }
+                }
+            } else {
+                // Debug: Niyə auto-heal aktiv deyil?
+                // Yalnız bir dəfə log yaz ki, spam olmasın
+                if (!tower._autoHealDebugLogged && tower.health < tower.maxHealth) {
+                    console.log(`[AUTO-HEAL] ⚠️ Tower ${tower.type} at (${tower.x}, ${tower.y}) has autoHealEnabled=false, health=${tower.health}/${tower.maxHealth}`);
+                    tower._autoHealDebugLogged = true;
                 }
             }
         }
@@ -3069,6 +4384,10 @@ class TowerDefenseGame {
     }
     
     updateBullets() {
+        if (this.gameState.gameOver) {
+            return;
+        }
+        
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i];
             // TTL safeguard
@@ -3486,8 +4805,7 @@ class TowerDefenseGame {
         }
         
         // Elması çıx
-        this.diamonds -= diamondCost;
-        localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+        this.changeCurrency(-diamondCost, 0);
         this.debugSuccess(`Plazma aktivləşdirildi - Xərclənən elmas: ${diamondCost}💎 (${cellDistance} dama məsafə)`);
         
         // Find path points and normal vectors for both towers
@@ -3826,6 +5144,9 @@ class TowerDefenseGame {
                 this.ctx.stroke();
             }
 
+            // Neon base radius - qüllənin əsas radiusu
+            const baseR = Math.max(6, Math.round(this.gridSize * 0.38));
+            
             // 1x1 grid cell highlight only when selected
             if (isSelected) {
                 this.ctx.globalAlpha = 0.12;
@@ -3833,11 +5154,59 @@ class TowerDefenseGame {
                 this.ctx.fillRect(tower.x - this.gridSize / 2, tower.y - this.gridSize / 2, 
                                 this.gridSize, this.gridSize);
                 this.ctx.globalAlpha = 1.0;
+                
+                // Dönen neon ışık efekti - seçilən qüllənin kenarı
+                this.ctx.save();
+                const rotationSpeed = 0.003; // Dövr sürəti
+                const rotation = (Date.now() * rotationSpeed) % (Math.PI * 2);
+                const glowRadius = baseR + 8; // Neon ışıq radiusu
+                const glowThickness = 4;
+                
+                // Neon ışıq rəngi - qüllə tipinə görə
+                const glowColors = {
+                    basic: 'rgba(74, 255, 74, 0.9)',    // Açıq yaşıl
+                    rapid: 'rgba(74, 144, 255, 0.9)',    // Açıq mavi
+                    heavy: 'rgba(255, 74, 74, 0.9)',     // Açıq qırmızı
+                    ice: 'rgba(0, 255, 255, 0.9)',      // Açıq cyan
+                    flame: 'rgba(255, 165, 0, 0.9)',    // Açıq narıncı
+                    laser: 'rgba(255, 20, 147, 0.9)',   // Açıq çəhrayı
+                    plasma: 'rgba(147, 112, 219, 0.9)'  // Açıq bənövşəyi
+                };
+                const glowColor = glowColors[tower.type] || 'rgba(74, 255, 74, 0.9)';
+                
+                // Dönen neon dairə çək
+                for (let i = 0; i < 8; i++) {
+                    const angle = rotation + (i * Math.PI * 2 / 8);
+                    const x1 = tower.x + Math.cos(angle) * glowRadius;
+                    const y1 = tower.y + Math.sin(angle) * glowRadius;
+                    const x2 = tower.x + Math.cos(angle) * (glowRadius + glowThickness);
+                    const y2 = tower.y + Math.sin(angle) * (glowRadius + glowThickness);
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1, y1);
+                    this.ctx.lineTo(x2, y2);
+                    this.ctx.strokeStyle = glowColor;
+                    this.ctx.lineWidth = 3;
+                    this.ctx.shadowColor = glowColor;
+                    this.ctx.shadowBlur = 8;
+                    this.ctx.stroke();
+                }
+                
+                // Xarici dönen neon dairə
+                this.ctx.beginPath();
+                this.ctx.arc(tower.x, tower.y, glowRadius + glowThickness, rotation, rotation + Math.PI * 2 / 4);
+                this.ctx.strokeStyle = glowColor;
+                this.ctx.lineWidth = 3;
+                this.ctx.shadowColor = glowColor;
+                this.ctx.shadowBlur = 12;
+                this.ctx.stroke();
+                
+                this.ctx.shadowBlur = 0;
+                this.ctx.restore();
             }
 
-            // Neon base + weapon barrel
+            // Neon base + weapon barrel (baseR artıq yuxarıda təyin edilib)
             // Back to subtle neon base + barrel (no 3D) for the actual game
-            const baseR = Math.max(6, Math.round(this.gridSize * 0.38));
             // Ring as health bar: part of ring disappears as health decreases
             const hpRatio = Math.max(0, Math.min(1, (tower.health ?? tower.maxHealth) / (tower.maxHealth || 1)));
             let neonStroke;
@@ -3853,10 +5222,20 @@ class TowerDefenseGame {
             };
             const baseColor = colors[tower.type] || 'hsl(120, 90%, 60%)';
             
-            // Apply health-based darkening (only for basic/rapid/heavy)
-            if (tower.type === 'basic' || tower.type === 'rapid' || tower.type === 'heavy') {
+            // Her qüllə tipi üçün öz rəngi olsun - health-based color yalnız basic/rapid/heavy üçün
+            // ANCAK health'e göre renk değişimi TOWER TİPİNDEN BAĞIMSIZ olmalı
+            if (tower.type === 'basic') {
+                // Basic tower - health'e göre yeşilden kırmızıya
                 const hue = Math.floor(120 * hpRatio); // 120=green to 0=red
                 neonStroke = `hsl(${hue}, 90%, 60%)`;
+            } else if (tower.type === 'rapid') {
+                // Rapid tower - HEP Mavi (health'e göre koyulaşabilir ama mavi kalır)
+                const lightness = 40 + (20 * hpRatio); // 40-60 arası
+                neonStroke = `hsl(200, 90%, ${lightness}%)`; // Hep mavi
+            } else if (tower.type === 'heavy') {
+                // Heavy tower - HEP Kırmızı (health'e göre koyulaşabilir ama kırmızı kalır)
+                const lightness = 40 + (20 * hpRatio); // 40-60 arası
+                neonStroke = `hsl(0, 90%, ${lightness}%)`; // Hep kırmızı
             } else {
                 // For star towers, just use base color (no health-based color change)
                 neonStroke = baseColor;
@@ -3917,7 +5296,7 @@ class TowerDefenseGame {
             
             // Awaken Rainbow Halqası (qüllənin içində) - əsas halqa qalır, sadəcə içində rainbow əlavə olunur
             if (tower.awakened) {
-                const rainbowRadius = baseR * 0.65; // Qüllənin içində, əsas halqadan kiçik
+                const rainbowRadius = baseR * 0.55; // Qüllənin içində, əsas halqadan kiçik (daha sıkıştırılmış)
                 const now = Date.now();
                 
                 // Mərmi atış zamanı təpmə effekti
@@ -3948,6 +5327,15 @@ class TowerDefenseGame {
                     this.ctx.strokeStyle = rainbowColors[i];
                     this.ctx.stroke();
                 }
+                
+                // Rainbow'un kenarına daire çerçeve ekle - oyundaki görünüş
+                this.ctx.beginPath();
+                this.ctx.arc(tower.x, tower.y, adjustedRainbowRadius, 0, Math.PI * 2);
+                this.ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+                this.ctx.shadowBlur = 4;
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; // Beyaz/şeffaf daire çerçeve
+                this.ctx.stroke();
                 
                 // Shielded olduqda - rainbow halqasının kənarlarına ağ xətlər (statik, animasiya yoxdur)
                 if (tower.shielded) {
@@ -4033,9 +5421,18 @@ class TowerDefenseGame {
                             this.gridSize, this.gridSize);
             this.ctx.globalAlpha = 1.0;
 
-            // Tower body
+            // Tower body - bütün qüllə tipləri üçün
             this.ctx.globalAlpha = 0.8;
-            this.ctx.fillStyle = type === 'basic' ? '#8B4513' : type === 'rapid' ? '#4169E1' : '#DC143C';
+            const towerColors = {
+                basic: '#8B4513',
+                rapid: '#4169E1',
+                heavy: '#DC143C',
+                ice: '#00CED1',
+                flame: '#FF4500',
+                laser: '#FF1493',
+                plasma: '#9370DB'
+            };
+            this.ctx.fillStyle = towerColors[type] || '#8B4513';
             this.ctx.beginPath();
             this.ctx.arc(this.hoverPos.x, this.hoverPos.y, 8, 0, Math.PI * 2);
             this.ctx.fill();
@@ -4099,6 +5496,102 @@ class TowerDefenseGame {
             const maxHealth = Math.floor(enemy.maxHealth);
             this.ctx.fillText(`${currentHealth}/${maxHealth}`, enemy.x, enemy.y - (radius + 15));
         }
+        
+        // Draw enemy tooltip if hovering
+        if (this.hoveredEnemy) {
+            this.drawEnemyTooltip(this.hoveredEnemy, this.mouseX, this.mouseY);
+        }
+    }
+    
+    drawEnemyTooltip(enemy, mouseX, mouseY) {
+        const enemyNames = {
+            basic: 'Zombie',
+            fast: 'Qartal',
+            tank: 'Dino',
+            boss: 'Boss X'
+        };
+        
+        const enemyDescriptions = {
+            basic: 'Yavaş hərəkət edən, orta zərər verən düşman',
+            fast: 'Sürətli hərəkət edən, aşağı zərər verən düşman',
+            tank: 'Yavaş hərəkət edən, yüksək canlı və güclü düşman',
+            boss: 'Güclü və sürətli, yüksək canlı boss düşmanı'
+        };
+        
+        const name = enemyNames[enemy.type] || enemy.type;
+        const description = enemyDescriptions[enemy.type] || '';
+        const health = Math.max(0, Math.floor(enemy.health));
+        const maxHealth = Math.floor(enemy.maxHealth);
+        const damage = this.getEnemyDamage(enemy.type, enemy.level);
+        const speed = Math.floor(enemy.speed || 0);
+        
+        // Tooltip məzmunu
+        const lines = [
+            name,
+            `❤️ Can: ${health}/${maxHealth}`,
+            `⚔️ Atış Gücü: ${damage}`,
+            `🏃 Sürət: ${speed}`,
+            `📊 Səviyyə: ${enemy.level || this.currentLevel}`,
+            description
+        ];
+        
+        // Tooltip ölçüsünü hesabla
+        const padding = 12;
+        const lineHeight = 20;
+        const fontSize = 14;
+        this.ctx.save();
+        this.ctx.font = `bold ${fontSize}px Arial`;
+        
+        let maxWidth = 0;
+        for (const line of lines) {
+            const metrics = this.ctx.measureText(line);
+            maxWidth = Math.max(maxWidth, metrics.width);
+        }
+        
+        const tooltipWidth = maxWidth + padding * 2;
+        const tooltipHeight = lines.length * lineHeight + padding * 2;
+        
+        // Tooltip pozisiyasını hesabla (mouse-un yanında, ekran sərhədlərindən kənarda olmasın)
+        let tooltipX = mouseX + 15;
+        let tooltipY = mouseY - tooltipHeight / 2;
+        
+        const canvasRect = this.canvas.getBoundingClientRect();
+        if (tooltipX + tooltipWidth > canvasRect.width) {
+            tooltipX = mouseX - tooltipWidth - 15;
+        }
+        if (tooltipY < 0) {
+            tooltipY = 10;
+        }
+        if (tooltipY + tooltipHeight > canvasRect.height) {
+            tooltipY = canvasRect.height - tooltipHeight - 10;
+        }
+        
+        // Tooltip fonu
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+        this.ctx.strokeStyle = '#ff4444';
+        this.ctx.lineWidth = 2;
+        this.ctx.fillRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
+        this.ctx.strokeRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
+        
+        // Tooltip mətnini çək
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'top';
+        this.ctx.font = `bold ${fontSize}px Arial`;
+        
+        lines.forEach((line, index) => {
+            let color = '#ffffff';
+            if (index === 0) {
+                color = '#ff4444'; // Başlıq
+                this.ctx.font = `bold ${fontSize + 2}px Arial`;
+            } else {
+                this.ctx.font = `${fontSize}px Arial`;
+            }
+            this.ctx.fillStyle = color;
+            this.ctx.fillText(line, tooltipX + padding, tooltipY + padding + index * lineHeight);
+        });
+        
+        this.ctx.restore();
     }
     
     drawEnemyIcon(enemy, radius) {
@@ -4611,7 +6104,9 @@ class TowerDefenseGame {
             };
             
             // Normal mərmilər (basic, rapid, heavy) - neon dizayn
-            if (['basic', 'rapid', 'heavy', 'laser'].includes(towerType)) {
+            // Her qüllə tipi üçün öz rəngi olsun
+            if (['basic', 'rapid', 'heavy'].includes(towerType)) {
+                // Doğru renkleri kullan - towerType'a göre
                 const colors = bulletColors[towerType] || bulletColors.basic;
                 
                 this.ctx.save();
@@ -4851,6 +6346,65 @@ class TowerDefenseGame {
                 }
                 
                 this.ctx.restore();
+            } else if (towerType === 'laser') {
+                // Laser bullet - purple/magenta neon
+                this.ctx.save();
+                
+                const laserColors = bulletColors.laser;
+                const glowRadius = baseR * 2.5;
+                const glowGradient = this.ctx.createRadialGradient(
+                    bullet.x, bullet.y, 0,
+                    bullet.x, bullet.y, glowRadius
+                );
+                glowGradient.addColorStop(0, laserColors.shadow);
+                glowGradient.addColorStop(0.5, laserColors.shadow.replace('0.6', '0.3'));
+                glowGradient.addColorStop(1, laserColors.shadow.replace('0.6', '0'));
+                this.ctx.fillStyle = glowGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, glowRadius, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                const bulletGradient = this.ctx.createRadialGradient(
+                    bullet.x, bullet.y, 0,
+                    bullet.x, bullet.y, baseR
+                );
+                bulletGradient.addColorStop(0, laserColors.fill);
+                bulletGradient.addColorStop(0.7, laserColors.glow);
+                bulletGradient.addColorStop(1, laserColors.fill);
+                this.ctx.fillStyle = bulletGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x, bullet.y, baseR * 1.1, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Laser iç işıq
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.beginPath();
+                this.ctx.arc(bullet.x - baseR * 0.3, bullet.y - baseR * 0.3, baseR * 0.4, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // Awaken halqası (narıncı)
+                if (isAwakened) {
+                    const ringRadius = baseR + 4;
+                    this.ctx.save();
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.shadowColor = '#ff8800';
+                    this.ctx.strokeStyle = '#ff8800';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    this.ctx.arc(bullet.x, bullet.y, ringRadius, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                    
+                    this.ctx.strokeStyle = '#ffaa00';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.shadowColor = '#ffaa00';
+                    this.ctx.shadowBlur = 6;
+                    this.ctx.beginPath();
+                    this.ctx.arc(bullet.x, bullet.y, ringRadius + 1, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                    this.ctx.restore();
+                }
+                
+                this.ctx.restore();
             } else {
                 // Normal bullet (yellow) for other towers
                 this.ctx.fillStyle = '#ffff00';
@@ -4893,6 +6447,10 @@ class TowerDefenseGame {
     }
     
     updateExplosions() {
+        if (this.gameState.gameOver) {
+            return;
+        }
+        
         const now = Date.now();
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             const exp = this.explosions[i];
@@ -5106,16 +6664,14 @@ class TowerDefenseGame {
         const costColEl = document.getElementById('costCol');
         if (costRowsEl) costRowsEl.textContent = String(rowsCost);
         if (costColEl) costColEl.textContent = String(colCost);
-        // Pause rejimində və ya ilk dalğa başlamazdan əvvəl redaktəyə icazə ver
-        const canEdit = this.gameState.isPaused || (!this.waveInProgress && this.enemies.length === 0 && this.gameState.wave <= 1);
+        // İlk dalğa başlamazdan əvvəl redaktəyə icazə ver
+        const canEdit = !this.waveInProgress && this.enemies.length === 0 && this.gameState.wave <= 1;
         if (buyRowsBtn) buyRowsBtn.disabled = !(canEdit && this.diamonds >= rowsCost && this.rows + 2 <= this.maxRows);
         if (buyColBtn) buyColBtn.disabled = !(canEdit && this.diamonds >= colCost && this.cols + 1 <= this.maxCols);
         // Məlumat mesajını yenilə
         const infoMsg = document.querySelector('#tab-special .shop-placeholder:last-child');
         if (infoMsg) {
-            infoMsg.textContent = this.gameState.isPaused 
-                ? 'Pause rejimində oyun taxtasını genişləndirə bilərsiniz.' 
-                : 'Dalğa başlamadan əvvəl istifadə edin.';
+            infoMsg.textContent = 'Dalğa başlamadan əvvəl istifadə edin.';
         }
     }
     
@@ -5127,7 +6683,10 @@ class TowerDefenseGame {
         if (!this.userId) return;
         
         try {
-            const gameDuration = this.gameStartTime ? Math.floor((Date.now() - this.gameStartTime) / 1000) : 0;
+            // Calculate game duration excluding paused time
+            const gameDuration = this.gameStartTime 
+                ? Math.floor((Date.now() - this.gameStartTime - this.totalPausedTime) / 1000) 
+                : 0;
             
             if (!this.API_BASE_URL) {
                 return; // Demo mode: skip API call
@@ -5234,6 +6793,12 @@ class TowerDefenseGame {
     
     // Mağaza qülləsi üçün kontekst menyu göstər
     showShopTowerContextMenu(optionElement, towerType, x, y) {
+        // optionElement null kontrolü
+        if (!optionElement) {
+            this.debugError('showShopTowerContextMenu: optionElement is null');
+            return;
+        }
+        
         // Kontekst menyu elementi tap və ya yarat
         let shopCtx = document.getElementById('shopTowerContext');
         if (!shopCtx) {
@@ -5267,6 +6832,13 @@ class TowerDefenseGame {
             btnFireRate.className = 'ctx-btn';
             btnFireRate.style.cssText = 'width:100%; padding:8px; background:rgba(74,144,226,0.3); border:1px solid #4a90e2; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
             typeSpecificSection.appendChild(btnFireRate);
+            
+            // Can artırma düyməsi
+            const btnHealth = document.createElement('button');
+            btnHealth.id = 'shopCtxHealth';
+            btnHealth.className = 'ctx-btn';
+            btnHealth.style.cssText = 'width:100%; padding:8px; background:rgba(255,77,77,0.3); border:1px solid #ff4d4d; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
+            typeSpecificSection.appendChild(btnHealth);
             
             // Ayırıcı xətt
             const separator = document.createElement('div');
@@ -5419,12 +6991,21 @@ class TowerDefenseGame {
         // Düymələri yenilə və event listener-ləri yenilə
         const btnDamage = document.getElementById('shopCtxDamage');
         const btnFireRate = document.getElementById('shopCtxFireRate');
+        const btnHealth = document.getElementById('shopCtxHealth');
         
         // Köhnə event listener-ləri sil və yenilərini əlavə et
-        const newBtnDamage = btnDamage.cloneNode(true);
-        const newBtnFireRate = btnFireRate.cloneNode(true);
-        btnDamage.parentNode.replaceChild(newBtnDamage, btnDamage);
-        btnFireRate.parentNode.replaceChild(newBtnFireRate, btnFireRate);
+        const newBtnDamage = btnDamage ? btnDamage.cloneNode(true) : null;
+        const newBtnFireRate = btnFireRate ? btnFireRate.cloneNode(true) : null;
+        const newBtnHealth = btnHealth ? btnHealth.cloneNode(true) : null;
+        if (btnDamage && newBtnDamage) {
+            btnDamage.parentNode.replaceChild(newBtnDamage, btnDamage);
+        }
+        if (btnFireRate && newBtnFireRate) {
+            btnFireRate.parentNode.replaceChild(newBtnFireRate, btnFireRate);
+        }
+        if (btnHealth && newBtnHealth) {
+            btnHealth.parentNode.replaceChild(newBtnHealth, btnHealth);
+        }
         
         if (newBtnDamage) {
             newBtnDamage.textContent = `⚔️ Atəş Gücü: ${baseDamage + upgrades.damage} (+${upgrades.damage}) - ${currencyIcon}1`;
@@ -5485,6 +7066,18 @@ class TowerDefenseGame {
             newBtnFireRate.addEventListener('mouseleave', () => {
                 clearTimeout(holdTimer);
                 clearInterval(holdInterval);
+            });
+        }
+        if (newBtnHealth) {
+            // Mağazada qüllə canını artırma - yalnız oyundakı qüllələrin canını artırır
+            const eligibleHealthTowers = this.towers.filter(t => t.type === towerType);
+            const totalHealthCost = eligibleHealthTowers.length * 50;
+            const healthCostText = totalHealthCost >= 1000 ? `${(totalHealthCost / 1000).toFixed(1)}min` : `${totalHealthCost}`;
+            newBtnHealth.textContent = `❤️ Can (${eligibleHealthTowers.length} qüllə) — $${healthCostText}`;
+            newBtnHealth.disabled = eligibleHealthTowers.length === 0 || this.gameState.money < 50;
+            
+            newBtnHealth.addEventListener('click', () => {
+                this.upgradeShopTowerHealth(towerType);
             });
         }
         
@@ -5637,16 +7230,26 @@ class TowerDefenseGame {
         shopCtx.style.zIndex = '100002'; /* Ensure it's above shop panel and tooltips */
         
         // Mənü xaricində klik edildikdə bağla
+        // İlk tıklamayı ignore et (menüyü açan tıklama)
+        let isFirstClick = true;
         const closeMenu = (e) => {
-            if (!shopCtx.contains(e.target) && e.target !== optionElement) {
+            // İlk tıklamayı ignore et (menüyü açan tıklama olabilir)
+            if (isFirstClick) {
+                isFirstClick = false;
+                return;
+            }
+            
+            // Tıklama shopCtx içindeyse veya optionElement içindeyse, menüyü kapatma
+            // (optionElement.contains() - çünkü e.target optionElement'in içindeki bir child element olabilir)
+            if (!shopCtx.contains(e.target) && !optionElement.contains(e.target) && e.target !== optionElement) {
                 shopCtx.style.display = 'none';
                 document.removeEventListener('click', closeMenu);
             }
         };
         
-        // Bir sonrakı click event-də bağla
+        // Bir sonrakı click event-də bağla (sol tıkta context menü açıldığında, aynı tıklamayı ignore etmek için gecikme)
         setTimeout(() => {
-            document.addEventListener('click', closeMenu);
+            document.addEventListener('click', closeMenu, true); // capture phase'de dinle
         }, 100);
     }
     
@@ -5662,10 +7265,12 @@ class TowerDefenseGame {
         // Bütün qüllələrin sayını və total pul dəyərini hesabla - yalnız seçilmiş qüllə tipinə aid
         const costPerUpgrade = 50;
         
-        // Radius üçün: hər qüllə üçün $50, awakened qüllələr üçün limit 6 - yalnız seçilmiş tip
+        // Radius üçün: hər qüllə üçün $50, awakened qüllələr üçün limit 3 - yalnız seçilmiş tip
         const eligibleRangeTowers = this.towers.filter(t => {
             if (t.type !== towerType) return false;
-            const limit = t.awakened ? 6 : 3;
+            // Awaken olmuş qüllələrdə radius yüksəltməsi yoxdur
+            if (t.awakened) return false;
+            const limit = 3;
             return (t.rangeUp || 0) < limit;
         });
         const totalRangeCost = eligibleRangeTowers.length * costPerUpgrade;
@@ -5677,7 +7282,7 @@ class TowerDefenseGame {
         // Atəş Gücü üçün - yalnız seçilmiş tip
         const eligibleDamageTowers = this.towers.filter(t => {
             if (t.type !== towerType) return false;
-            const limit = t.awakened ? 6 : 3;
+            const limit = t.awakened ? 8 : 3; // Awaken-dən sonra 8/8 (3 awaken əvvəl + 5 awaken sonrası)
             return (t.damageUp || 0) < limit;
         });
         const totalDamageCost = eligibleDamageTowers.length * costPerUpgrade;
@@ -5689,7 +7294,7 @@ class TowerDefenseGame {
         // Atəş Sürəti üçün - yalnız seçilmiş tip
         const eligibleFireRateTowers = this.towers.filter(t => {
             if (t.type !== towerType) return false;
-            const limit = t.awakened ? 6 : 3;
+            const limit = t.awakened ? 3 : 3; // Awaken-dən sonra da 3/3
             return (t.rateUp || 0) < limit;
         });
         const totalFireRateCost = eligibleFireRateTowers.length * costPerUpgrade;
@@ -5715,106 +7320,460 @@ class TowerDefenseGame {
     // Bütün qüllələrin radiusunu artır - yalnız seçilmiş qüllə tipinə aid
     upgradeAllTowersRange(towerType) {
         const costPerUpgrade = 50;
+        
+        if (this.towers.length === 0) {
+            this.showTooltip('Qüllə yoxdur!', 'error');
+            return;
+        }
+        
+        // Uyğun qüllələri yol boyu sırala
         const eligibleTowers = this.towers.filter(t => {
             if (t.type !== towerType) return false;
-            const limit = t.awakened ? 6 : 3;
-            return (t.rangeUp || 0) < limit && this.gameState.money >= costPerUpgrade;
+            // Awaken-dən sonra da radius limit 3/3 olmalıdır (awaken olmuş qüllələrdə radius yüksəltməsi yoxdur)
+            if (t.awakened) return false; // Awaken olmuş qüllələrdə radius yüksəltməsi yoxdur
+            const limit = 3;
+            return (t.rangeUp || 0) < limit;
         });
         
         if (eligibleTowers.length === 0) {
-            this.showTooltip('Yüksəltmə üçün uyğun qüllə yoxdur və ya kifayət qədər pul yoxdur!', 'error');
+            this.showTooltip('Yüksəltmə üçün uyğun qüllə yoxdur!', 'error');
             return;
         }
         
-        const totalCost = eligibleTowers.length * costPerUpgrade;
-        if (this.gameState.money < totalCost) {
-            this.showTooltip(`Kifayət qədər pul yoxdur! Lazım: $${totalCost}, Mövcud: $${this.gameState.money}`, 'error');
-            return;
-        }
+        // Qüllələri yol boyu sırala - yolun başından sonuna
+        const towersWithPathDistance = eligibleTowers.map(tower => {
+            let minDistance = Infinity;
+            let pathIndex = 0;
+            if (this.path && this.path.length > 0) {
+                for (let i = 0; i < this.path.length; i++) {
+                    const pathPoint = this.path[i];
+                    const dx = tower.x - pathPoint.x;
+                    const dy = tower.y - pathPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        pathIndex = i;
+                    }
+                }
+            } else {
+                // Path yoxdursa, yolun başlanğıcına yaxın olanları hesabla
+                const startX = this.startCell ? this.startCell.col * this.gridSize + this.gridSize / 2 : 0;
+                const startY = this.startCell ? this.startCell.row * this.gridSize + this.gridSize / 2 : 0;
+                const dx = tower.x - startX;
+                const dy = tower.y - startY;
+                minDistance = Math.sqrt(dx * dx + dy * dy);
+            }
+            return { tower, distance: minDistance, pathIndex };
+        });
         
-        // Hər bir uyğun qülləni yüksəlt
-        eligibleTowers.forEach(tower => {
-            const limit = tower.awakened ? 6 : 3;
+        // Yolun başından sonuna sırala (pathIndex və distance-ə görə)
+        towersWithPathDistance.sort((a, b) => {
+            if (a.pathIndex !== b.pathIndex) {
+                return a.pathIndex - b.pathIndex;
+            }
+            return a.distance - b.distance;
+        });
+        
+        // Pul qədər qüllə artır
+        let upgradedCount = 0;
+        const upgrades = [];
+        
+        for (const { tower } of towersWithPathDistance) {
+            const limit = tower.awakened ? 3 : 3; // Awaken-dən sonra da 3/3
             if ((tower.rangeUp || 0) < limit && this.gameState.money >= costPerUpgrade) {
                 tower.rangeUp = (tower.rangeUp || 0) + 1;
                 tower.range = Math.floor(tower.range * 1.15);
                 this.gameState.money -= costPerUpgrade;
+                upgrades.push(tower);
+                upgradedCount++;
+            } else {
+                break;
             }
+        }
+        
+        if (upgradedCount === 0) {
+            this.showTooltip(`Kifayət qədər pul yoxdur! Hər yüksəltmə: $${costPerUpgrade}`, 'error');
+            return;
+        }
+        
+        // Yüksəltmə animasiyası
+        upgrades.forEach((tower, index) => {
+            setTimeout(() => {
+                tower.highlightUntil = Date.now() + 800;
+            }, index * 100);
         });
         
         this.updateUI();
         this.updateGlobalUpgradeButtons(towerType);
-        this.debugSuccess(`${eligibleTowers.length} qüllənin radiusu artırıldı!`);
+        this.showTooltip(`${upgradedCount} qüllənin radiusu yol boyu artırıldı!`, 'success');
     }
     
     // Bütün qüllələrin atəş gücünü artır - yalnız seçilmiş qüllə tipinə aid
     upgradeAllTowersDamage(towerType) {
         const costPerUpgrade = 50;
+        
+        if (this.towers.length === 0) {
+            this.showTooltip('Qüllə yoxdur!', 'error');
+            return;
+        }
+        
+        // Uyğun qüllələri yol boyu sırala
         const eligibleTowers = this.towers.filter(t => {
             if (t.type !== towerType) return false;
-            const limit = t.awakened ? 6 : 3;
-            return (t.damageUp || 0) < limit && this.gameState.money >= costPerUpgrade;
+            // Awaken əvvəl: limit 3, awaken sonrası: limit 8
+            const limit = t.awakened ? 8 : 3;
+            return (t.damageUp || 0) < limit;
         });
         
         if (eligibleTowers.length === 0) {
-            this.showTooltip('Yüksəltmə üçün uyğun qüllə yoxdur və ya kifayət qədər pul yoxdur!', 'error');
+            this.showTooltip('Yüksəltmə üçün uyğun qüllə yoxdur!', 'error');
             return;
         }
         
-        const totalCost = eligibleTowers.length * costPerUpgrade;
-        if (this.gameState.money < totalCost) {
-            this.showTooltip(`Kifayət qədər pul yoxdur! Lazım: $${totalCost}, Mövcud: $${this.gameState.money}`, 'error');
-            return;
-        }
-        
-        // Hər bir uyğun qülləni yüksəlt
-        eligibleTowers.forEach(tower => {
-            const limit = tower.awakened ? 6 : 3;
-            if ((tower.damageUp || 0) < limit && this.gameState.money >= costPerUpgrade) {
-                tower.damageUp = (tower.damageUp || 0) + 1;
-                tower.damage = Math.floor(tower.damage * 1.2);
-                this.gameState.money -= costPerUpgrade;
+        // Qüllələri yol boyu sırala - yolun başından sonuna
+        const towersWithPathDistance = eligibleTowers.map(tower => {
+            let minDistance = Infinity;
+            let pathIndex = 0;
+            if (this.path && this.path.length > 0) {
+                for (let i = 0; i < this.path.length; i++) {
+                    const pathPoint = this.path[i];
+                    const dx = tower.x - pathPoint.x;
+                    const dy = tower.y - pathPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        pathIndex = i;
+                    }
+                }
+            } else {
+                // Path yoxdursa, yolun başlanğıcına yaxın olanları hesabla
+                const startX = this.startCell ? this.startCell.col * this.gridSize + this.gridSize / 2 : 0;
+                const startY = this.startCell ? this.startCell.row * this.gridSize + this.gridSize / 2 : 0;
+                const dx = tower.x - startX;
+                const dy = tower.y - startY;
+                minDistance = Math.sqrt(dx * dx + dy * dy);
             }
+            return { tower, distance: minDistance, pathIndex };
+        });
+        
+        // Yolun başından sonuna sırala (pathIndex və distance-ə görə)
+        towersWithPathDistance.sort((a, b) => {
+            if (a.pathIndex !== b.pathIndex) {
+                return a.pathIndex - b.pathIndex;
+            }
+            return a.distance - b.distance;
+        });
+        
+        // Pul qədər qüllə artır
+        let upgradedCount = 0;
+        const upgrades = [];
+        
+        for (const { tower } of towersWithPathDistance) {
+            // Awaken əvvəl: limit 3, awaken sonrası: limit 8
+            const limit = tower.awakened ? 8 : 3;
+            if ((tower.damageUp || 0) < limit) {
+                const currentDamageUp = tower.damageUp || 0;
+                
+                // Awaken sonrası yüksəltmələr üçün: Her level'de maliyet 1.5x artır (50 * 1.5^(level-3))
+                // Awaken əvvəl: Sabit 50 para
+                let cost = costPerUpgrade;
+                if (tower.awakened && currentDamageUp >= 3) {
+                    cost = Math.floor(50 * Math.pow(1.5, currentDamageUp - 3));
+                }
+                
+                if (this.gameState.money >= cost) {
+                    tower.damageUp = currentDamageUp + 1;
+                    // Awaken əvvəl: Mevcut %20 artış (%1.2x)
+                    // Awaken sonrası: Hər yüksəltmə sabit 32 damage əlavə edir (toplam 200 olmaq üçün)
+                    if (tower.awakened && currentDamageUp >= 3) {
+                        const baseDamageAfterAwaken = this.getTowerDamage(tower.type);
+                        let damageAfterFirst3 = baseDamageAfterAwaken;
+                        for (let i = 0; i < 3; i++) {
+                            damageAfterFirst3 = Math.floor(damageAfterFirst3 * 1.2);
+                        }
+                        const damageAfterAwaken = Math.floor(damageAfterFirst3 * 1.2);
+                        const awakenUpgrades = currentDamageUp - 2; // 3->1, 4->2, 5->3, 6->4, 7->5, 8->6
+                        tower.damage = damageAfterAwaken + (awakenUpgrades * 32);
+                    } else {
+                        tower.damage = Math.floor(tower.damage * 1.2);
+                    }
+                    this.gameState.money -= cost;
+                    upgrades.push(tower);
+                    upgradedCount++;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        
+        if (upgradedCount === 0) {
+            this.showTooltip(`Kifayət qədər pul yoxdur! Hər yüksəltmə: $${costPerUpgrade}`, 'error');
+            return;
+        }
+        
+        // Yüksəltmə animasiyası
+        upgrades.forEach((tower, index) => {
+            setTimeout(() => {
+                tower.highlightUntil = Date.now() + 800;
+            }, index * 100);
         });
         
         this.updateUI();
         this.updateGlobalUpgradeButtons(towerType);
-        this.debugSuccess(`${eligibleTowers.length} qüllənin atəş gücü artırıldı!`);
+        this.showTooltip(`${upgradedCount} qüllənin atəş gücü yol boyu artırıldı!`, 'success');
     }
     
     // Bütün qüllələrin atəş sürətini artır - yalnız seçilmiş qüllə tipinə aid
     upgradeAllTowersFireRate(towerType) {
         const costPerUpgrade = 50;
+        
+        if (this.towers.length === 0) {
+            this.showTooltip('Qüllə yoxdur!', 'error');
+            return;
+        }
+        
+        // Uyğun qüllələri yol boyu sırala
         const eligibleTowers = this.towers.filter(t => {
             if (t.type !== towerType) return false;
-            const limit = t.awakened ? 6 : 3;
-            return (t.rateUp || 0) < limit && this.gameState.money >= costPerUpgrade;
+            // Awaken olmuş qüllələr üçün fire rate yüksəltməsi yoxdur
+            if (t.awakened) return false;
+            const limit = 3;
+            return (t.rateUp || 0) < limit;
         });
         
         if (eligibleTowers.length === 0) {
-            this.showTooltip('Yüksəltmə üçün uyğun qüllə yoxdur və ya kifayət qədər pul yoxdur!', 'error');
+            this.showTooltip('Yüksəltmə üçün uyğun qüllə yoxdur!', 'error');
             return;
         }
         
-        const totalCost = eligibleTowers.length * costPerUpgrade;
-        if (this.gameState.money < totalCost) {
-            this.showTooltip(`Kifayət qədər pul yoxdur! Lazım: $${totalCost}, Mövcud: $${this.gameState.money}`, 'error');
-            return;
-        }
+        // Qüllələri yol boyu sırala - yolun başından sonuna
+        const towersWithPathDistance = eligibleTowers.map(tower => {
+            let minDistance = Infinity;
+            let pathIndex = 0;
+            if (this.path && this.path.length > 0) {
+                for (let i = 0; i < this.path.length; i++) {
+                    const pathPoint = this.path[i];
+                    const dx = tower.x - pathPoint.x;
+                    const dy = tower.y - pathPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        pathIndex = i;
+                    }
+                }
+            } else {
+                // Path yoxdursa, yolun başlanğıcına yaxın olanları hesabla
+                const startX = this.startCell ? this.startCell.col * this.gridSize + this.gridSize / 2 : 0;
+                const startY = this.startCell ? this.startCell.row * this.gridSize + this.gridSize / 2 : 0;
+                const dx = tower.x - startX;
+                const dy = tower.y - startY;
+                minDistance = Math.sqrt(dx * dx + dy * dy);
+            }
+            return { tower, distance: minDistance, pathIndex };
+        });
         
-        // Hər bir uyğun qülləni yüksəlt
-        eligibleTowers.forEach(tower => {
-            const limit = tower.awakened ? 6 : 3;
+        // Yolun başından sonuna sırala (pathIndex və distance-ə görə)
+        towersWithPathDistance.sort((a, b) => {
+            if (a.pathIndex !== b.pathIndex) {
+                return a.pathIndex - b.pathIndex;
+            }
+            return a.distance - b.distance;
+        });
+        
+        // Pul qədər qüllə artır
+        let upgradedCount = 0;
+        const upgrades = [];
+        
+        for (const { tower } of towersWithPathDistance) {
+            const limit = 3;
             if ((tower.rateUp || 0) < limit && this.gameState.money >= costPerUpgrade) {
                 tower.rateUp = (tower.rateUp || 0) + 1;
                 tower.fireRate = Math.max(80, Math.floor(tower.fireRate * 0.85));
                 this.gameState.money -= costPerUpgrade;
+                upgrades.push(tower);
+                upgradedCount++;
+            } else {
+                break;
             }
+        }
+        
+        if (upgradedCount === 0) {
+            this.showTooltip(`Kifayət qədər pul yoxdur! Hər yüksəltmə: $${costPerUpgrade}`, 'error');
+            return;
+        }
+        
+        // Yüksəltmə animasiyası
+        upgrades.forEach((tower, index) => {
+            setTimeout(() => {
+                tower.highlightUntil = Date.now() + 800;
+            }, index * 100);
         });
         
         this.updateUI();
         this.updateGlobalUpgradeButtons(towerType);
-        this.debugSuccess(`${eligibleTowers.length} qüllənin atəş sürəti artırıldı!`);
+        this.showTooltip(`${upgradedCount} qüllənin atəş sürəti yol boyu artırıldı!`, 'success');
+    }
+    
+    // Mağazada qüllə canını artırma - yalnız oyundakı qüllələrin canını artırır
+    upgradeShopTowerHealth(towerType) {
+        const costPerUpgrade = 50;
+        
+        if (this.towers.length === 0) {
+            this.showTooltip('Qüllə yoxdur!', 'error');
+            return;
+        }
+        
+        const eligibleTowers = this.towers.filter(t => t.type === towerType);
+        
+        if (eligibleTowers.length === 0) {
+            this.showTooltip(`Bu tip qüllə yoxdur!`, 'error');
+            return;
+        }
+        
+        // Qüllələri yol boyu sırala - yolun başından sonuna
+        const towersWithPathDistance = eligibleTowers.map(tower => {
+            let minDistance = Infinity;
+            let pathIndex = 0;
+            if (this.path && this.path.length > 0) {
+                for (let i = 0; i < this.path.length; i++) {
+                    const pathPoint = this.path[i];
+                    const dx = tower.x - pathPoint.x;
+                    const dy = tower.y - pathPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        pathIndex = i;
+                    }
+                }
+            } else {
+                // Path yoxdursa, yolun başlanğıcına yaxın olanları hesabla
+                const startX = this.startCell ? this.startCell.col * this.gridSize + this.gridSize / 2 : 0;
+                const startY = this.startCell ? this.startCell.row * this.gridSize + this.gridSize / 2 : 0;
+                const dx = tower.x - startX;
+                const dy = tower.y - startY;
+                minDistance = Math.sqrt(dx * dx + dy * dy);
+            }
+            return { tower, distance: minDistance, pathIndex };
+        });
+        
+        // Yolun başından sonuna sırala (pathIndex və distance-ə görə)
+        towersWithPathDistance.sort((a, b) => {
+            if (a.pathIndex !== b.pathIndex) {
+                return a.pathIndex - b.pathIndex;
+            }
+            return a.distance - b.distance;
+        });
+        
+        // Pul qədər qüllə artır
+        let upgradedCount = 0;
+        const upgrades = [];
+        
+        for (const { tower } of towersWithPathDistance) {
+            if (this.gameState.money >= costPerUpgrade) {
+                tower.maxHealth = (tower.maxHealth || 100) + 50;
+                tower.health += 50;
+                tower.healthUp = (tower.healthUp || 0) + 1;
+                this.gameState.money -= costPerUpgrade;
+                upgrades.push(tower);
+                upgradedCount++;
+            } else {
+                break;
+            }
+        }
+        
+        if (upgradedCount === 0) {
+            this.showTooltip(`Kifayət qədər pul yoxdur! Hər yüksəltmə: $${costPerUpgrade}`, 'error');
+            return;
+        }
+        
+        // Yüksəltmə animasiyası
+        upgrades.forEach((tower, index) => {
+            setTimeout(() => {
+                tower.highlightUntil = Date.now() + 800;
+            }, index * 100);
+        });
+        
+        this.updateUI();
+        this.updateGlobalUpgradeButtons(towerType);
+        this.showTooltip(`${upgradedCount} qüllənin canı yol boyu artırıldı!`, 'success');
+    }
+    
+    // Bütün qüllələrin canını yol boyu artır - yolun başından başlayaraq pul qədər
+    upgradeAllTowersHealthByPath() {
+        const costPerUpgrade = 50;
+        
+        if (this.towers.length === 0) {
+            this.showTooltip('Qüllə yoxdur!', 'error');
+            return;
+        }
+        
+        // Qüllələri yol boyu sırala - yolun başından sonuna
+        const towersWithPathDistance = this.towers.map(tower => {
+            let minDistance = Infinity;
+            let pathIndex = 0;
+            if (this.path && this.path.length > 0) {
+                for (let i = 0; i < this.path.length; i++) {
+                    const pathPoint = this.path[i];
+                    const dx = tower.x - pathPoint.x;
+                    const dy = tower.y - pathPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        pathIndex = i;
+                    }
+                }
+            } else {
+                // Path yoxdursa, yolun başlanğıcına yaxın olanları hesabla
+                const startX = this.startCell ? this.startCell.col * this.gridSize + this.gridSize / 2 : 0;
+                const startY = this.startCell ? this.startCell.row * this.gridSize + this.gridSize / 2 : 0;
+                const dx = tower.x - startX;
+                const dy = tower.y - startY;
+                minDistance = Math.sqrt(dx * dx + dy * dy);
+            }
+            return { tower, distance: minDistance, pathIndex };
+        });
+        
+        // Yolun başından sonuna sırala (pathIndex və distance-ə görə)
+        towersWithPathDistance.sort((a, b) => {
+            if (a.pathIndex !== b.pathIndex) {
+                return a.pathIndex - b.pathIndex;
+            }
+            return a.distance - b.distance;
+        });
+        
+        // Pul qədər qüllə artır
+        let upgradedCount = 0;
+        const upgrades = [];
+        
+        for (const { tower } of towersWithPathDistance) {
+            if (this.gameState.money >= costPerUpgrade) {
+                tower.maxHealth = (tower.maxHealth || 100) + 50;
+                tower.health += 50;
+                tower.healthUp = (tower.healthUp || 0) + 1;
+                this.gameState.money -= costPerUpgrade;
+                upgrades.push(tower);
+                upgradedCount++;
+            } else {
+                break;
+            }
+        }
+        
+        if (upgradedCount === 0) {
+            this.showTooltip(`Kifayət qədər pul yoxdur! Hər yüksəltmə: $${costPerUpgrade}`, 'error');
+            return;
+        }
+        
+        // Yüksəltmə animasiyası
+        upgrades.forEach((tower, index) => {
+            setTimeout(() => {
+                tower.highlightUntil = Date.now() + 800;
+            }, index * 100);
+        });
+        
+        this.updateUI();
+        this.showTooltip(`${upgradedCount} qüllənin canı yol boyu artırıldı!`, 'success');
     }
     
     // Bütün uyğun qüllələri awaken et - yalnız seçilmiş qüllə tipinə aid
@@ -5851,8 +7810,7 @@ class TowerDefenseGame {
                 tower.damage = Math.floor(tower.damage * 1.2);
                 tower.fireRate = Math.max(60, Math.floor(tower.fireRate * 0.85));
                 tower.range = Math.floor(tower.range * 1.1);
-                this.diamonds -= diamondCostPerTower;
-                localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+                this.changeCurrency(-diamondCostPerTower, 0);
             }
         });
         
@@ -5896,11 +7854,9 @@ class TowerDefenseGame {
         
         // Valyutanı azalt
         if (isStarTower) {
-            this.stars -= cost;
-            localStorage.setItem('towerDefenseStars', this.stars.toString());
+            this.changeCurrency(0, -cost);
         } else {
-            this.diamonds -= cost;
-            localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+            this.changeCurrency(-cost, 0);
         }
         
         // Bütün mövcud qüllələrin damage dəyərlərini yenilə
@@ -5983,11 +7939,9 @@ class TowerDefenseGame {
         
         // Valyutanı azalt
         if (isStarTower) {
-            this.stars -= cost;
-            localStorage.setItem('towerDefenseStars', this.stars.toString());
+            this.changeCurrency(0, -cost);
         } else {
-            this.diamonds -= cost;
-            localStorage.setItem('towerDefenseDiamonds', this.diamonds.toString());
+            this.changeCurrency(-cost, 0);
         }
         
         // Bütün mövcud qüllələrin fireRate dəyərlərini yenilə
@@ -6025,14 +7979,20 @@ class TowerDefenseGame {
         this.debugSuccess(`${towerType} qülləsi atəş sürəti artırıldı (+${currentUpgrades + 1}). Qalan ${currencyName}: ${currencyDisplay}`);
     }
     
-    // Oyun vəziyyətini yadda saxla
+    // Oyun vəziyyətini yadda saxla (online: API, offline: localStorage)
     async saveGameState(showMessage = true) {
         if (this.gameState.gameOver) return;
         
-        // localStorage istifadə et (GitHub Pages və Render üçün)
-        if (this.useLocalStorage) {
+        // Offline ikən localStorage'a kaydet
+        const shouldUseLocalStorage = this.useLocalStorage || (!this.isOnline && this.API_BASE_URL);
+        
+        // localStorage istifadə et (GitHub Pages və Render üçün VƏ offline ikən)
+        if (shouldUseLocalStorage) {
             try {
-                const gameDuration = this.gameStartTime ? Math.floor((Date.now() - this.gameStartTime) / 1000) : 0;
+                // Calculate game duration excluding paused time
+            const gameDuration = this.gameStartTime 
+                ? Math.floor((Date.now() - this.gameStartTime - this.totalPausedTime) / 1000) 
+                : 0;
                 
                 const gameStateData = {
                     gameState: {
@@ -6040,7 +8000,6 @@ class TowerDefenseGame {
                         money: this.gameState.money,
                         wave: this.gameState.wave,
                         score: this.gameState.score,
-                        isPaused: this.gameState.isPaused,
                         gameOver: this.gameState.gameOver
                     },
                     towers: this.towers.map(t => ({
@@ -6056,6 +8015,7 @@ class TowerDefenseGame {
                         rangeUp: t.rangeUp || 0,
                         damageUp: t.damageUp || 0,
                         rateUp: t.rateUp || 0,
+                        healthUp: t.healthUp || 0,
                         awakened: t.awakened || false,
                         shielded: t.shielded || false,
                         autoHealEnabled: t.autoHealEnabled || false,
@@ -6076,6 +8036,9 @@ class TowerDefenseGame {
                     enemiesKilledThisGame: this.enemiesKilledThisGame,
                     gameDuration: gameDuration,
                     gameStartTime: this.gameStartTime,
+                    // Pause sistemi qeyd et
+                    totalPausedTime: this.totalPausedTime,
+                    isPaused: this.isPaused,
                     // Mağaza yüksəltmələri qeyd et
                     towerShopUpgrades: this.towerShopUpgrades || { basic: { damage: 0, fireRate: 0 }, rapid: { damage: 0, fireRate: 0 }, heavy: { damage: 0, fireRate: 0 } },
                     // Global auto-heal settings qeyd et
@@ -6106,7 +8069,10 @@ class TowerDefenseGame {
         if (!this.userId) return;
         
         try {
-            const gameDuration = this.gameStartTime ? Math.floor((Date.now() - this.gameStartTime) / 1000) : 0;
+            // Calculate game duration excluding paused time
+            const gameDuration = this.gameStartTime 
+                ? Math.floor((Date.now() - this.gameStartTime - this.totalPausedTime) / 1000) 
+                : 0;
             
             const gameStateData = {
                 gameState: {
@@ -6114,7 +8080,6 @@ class TowerDefenseGame {
                     money: this.gameState.money,
                     wave: this.gameState.wave,
                     score: this.gameState.score,
-                    isPaused: this.gameState.isPaused,
                     gameOver: this.gameState.gameOver
                 },
                 towers: this.towers.map(t => ({
@@ -6130,6 +8095,7 @@ class TowerDefenseGame {
                     rangeUp: t.rangeUp || 0,
                     damageUp: t.damageUp || 0,
                     rateUp: t.rateUp || 0,
+                    healthUp: t.healthUp || 0,
                     awakened: t.awakened || false,
                     shielded: t.shielded || false,
                     autoHealEnabled: t.autoHealEnabled || false,
@@ -6150,6 +8116,9 @@ class TowerDefenseGame {
                 enemiesKilledThisGame: this.enemiesKilledThisGame,
                 gameDuration: gameDuration,
                 gameStartTime: this.gameStartTime,
+                // Pause sistemi qeyd et
+                totalPausedTime: this.totalPausedTime,
+                isPaused: this.isPaused,
                 // Mağaza yüksəltmələri qeyd et
                 towerShopUpgrades: this.towerShopUpgrades || { basic: { damage: 0, fireRate: 0 }, rapid: { damage: 0, fireRate: 0 }, heavy: { damage: 0, fireRate: 0 } },
                 // Global auto-heal settings qeyd et
@@ -6229,8 +8198,23 @@ class TowerDefenseGame {
             if (!this.API_BASE_URL) {
                 return null;
             }
-            const response = await fetch(`${this.API_BASE_URL}/load-game-state?user_id=${this.userId}`);
+            
+            // Timeout ekle - 5 saniyədən çox gözləmə
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            const loadStartTime = performance.now();
+            this.debugLog('[PERF] loadGameState() API call started');
+            
+            const response = await fetch(`${this.API_BASE_URL}/load-game-state?user_id=${this.userId}`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            
             const data = await response.json();
+            
+            const loadEndTime = performance.now();
+            this.debugLog(`[PERF] loadGameState() API call completed in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
             
             if (data.success && data.game_state) {
                 return data;
@@ -6238,7 +8222,11 @@ class TowerDefenseGame {
             
             return null;
         } catch (error) {
-            console.error('Load game state error:', error);
+            if (error.name === 'AbortError') {
+                this.debugLog('[PERF] loadGameState() API timeout');
+            } else {
+                console.error('Load game state error:', error);
+            }
             return null;
         }
     }
@@ -6251,12 +8239,15 @@ class TowerDefenseGame {
         
         // Əsas oyun vəziyyəti
         if (state.gameState) {
+            // Para dəyəri - əgər undefined/null isə 500, lakin 0 geçərli bir dəyərdir (istifadəçi parasını xərcləyib ola bilər)
+            const savedMoney = state.gameState.money;
+            const money = (savedMoney !== undefined && savedMoney !== null) ? savedMoney : 500;
+            
             this.gameState = {
                 health: state.gameState.health || 100,
-                money: state.gameState.money || 500,
+                money: money,  // Kayıtlı para dəyərini saxla (0 də olabilir)
                 wave: state.gameState.wave || 1,
                 score: state.gameState.score || 0,
-                isPaused: state.gameState.isPaused || false,
                 gameOver: state.gameState.gameOver || false
             };
         }
@@ -6283,6 +8274,7 @@ class TowerDefenseGame {
                     rangeUp: t.rangeUp || 0,
                     damageUp: t.damageUp || 0,
                     rateUp: t.rateUp || 0,
+                    healthUp: t.healthUp || 0,
                     awakened: t.awakened || false,
                     shielded: t.shielded || false,
                     autoHealEnabled: t.autoHealEnabled || false,
@@ -6414,6 +8406,22 @@ class TowerDefenseGame {
             this.gameStartTime = state.gameStartTime;
         }
         
+        // Pause sistemi yüklə
+        if (state.totalPausedTime !== undefined) {
+            this.totalPausedTime = state.totalPausedTime;
+        }
+        if (state.isPaused !== undefined) {
+            // Eğer kayıt sırasında pause'daydıysa, resume et (çünkü yüklerken baştan başlıyor)
+            this.isPaused = false;
+            this.pauseStartTime = null;
+            
+            // UI butonlarını güncelle
+            const pauseBtn = document.getElementById('pauseGame');
+            const resumeBtn = document.getElementById('resumeGame');
+            if (pauseBtn) pauseBtn.style.display = 'block';
+            if (resumeBtn) resumeBtn.style.display = 'none';
+        }
+        
         // Mağaza yüksəltmələri qeyddən yüklə
         if (state.towerShopUpgrades) {
             this.towerShopUpgrades = state.towerShopUpgrades;
@@ -6501,6 +8509,17 @@ class TowerDefenseGame {
         this.gameStartTime = Date.now();
         this.enemiesKilledThisGame = 0;
         
+        // Reset pause system
+        this.isPaused = false;
+        this.pauseStartTime = null;
+        this.totalPausedTime = 0;
+        
+        // Update UI buttons
+        const pauseBtn = document.getElementById('pauseGame');
+        const resumeBtn = document.getElementById('resumeGame');
+        if (pauseBtn) pauseBtn.style.display = 'block';
+        if (resumeBtn) resumeBtn.style.display = 'none';
+        
         this.debugLog(`🔄 Oyun yenidən başladılır...`);
         
         // Reset game state
@@ -6509,7 +8528,6 @@ class TowerDefenseGame {
             money: 500,
             wave: 1,
             score: 0,
-            isPaused: false,
             gameOver: false
         };
         
@@ -6577,27 +8595,28 @@ class TowerDefenseGame {
         this.initCellIds(); // Re-initialize cell IDs for new grid
         this.updateGridDimensions();
         
-        // Qala və başlanğıc mövqeyi saxlanmalıdır - qeyd edilmiş varsa, onu istifadə et
+        // Yolun hər zaman ortada qalması üçün orta satırı hesabla
+        const midRow = Math.floor(this.rows / 2);
+        
+        // Qala və başlanğıc mövqeyi - qeyd edilmiş varsa column-u istifadə et, amma row-u həmişə ortada qoy
         if (savedGoalCell && savedGoalCell.col !== undefined && savedGoalCell.row !== undefined) {
             const savedGoalCol = Math.max(0, Math.min(this.gridCols - 1, savedGoalCell.col));
-            const savedGoalRow = Math.max(0, Math.min(this.gridRows - 1, savedGoalCell.row));
-            this.goalCell = { col: savedGoalCol, row: savedGoalRow };
-            this.debugLog(`🗼 Qala mövqeyi qeyddən yükləndi: (${savedGoalCol}, ${savedGoalRow})`);
+            // Row-u hər zaman ortada qoy (yol ortada qalmalıdır)
+            this.goalCell = { col: savedGoalCol, row: midRow };
+            this.debugLog(`🗼 Qala mövqeyi qeyddən yükləndi (column saxlanıldı, row ortaya alındı): (${savedGoalCol}, ${midRow})`);
         } else {
-            // Qeyd edilməmişsə, default mövqeyi təyin et
-            const midRow = Math.floor(this.gridRows / 2);
+            // Qeyd edilməmişsə, default mövqeyi təyin et (ortada)
             this.goalCell = { col: this.gridCols - 1, row: midRow };
             this.debugLog(`🗼 Qala mövqeyi default: (${this.goalCell.col}, ${this.goalCell.row})`);
         }
         
         if (savedStartCell && savedStartCell.col !== undefined && savedStartCell.row !== undefined) {
             const savedStartCol = Math.max(0, Math.min(this.gridCols - 1, savedStartCell.col));
-            const savedStartRow = Math.max(0, Math.min(this.gridRows - 1, savedStartCell.row));
-            this.startCell = { col: savedStartCol, row: savedStartRow };
-            this.debugLog(`🚪 Başlanğıc mövqeyi qeyddən yükləndi: (${savedStartCol}, ${savedStartRow})`);
+            // Row-u hər zaman ortada qoy (yol ortada qalmalıdır)
+            this.startCell = { col: savedStartCol, row: midRow };
+            this.debugLog(`🚪 Başlanğıc mövqeyi qeyddən yükləndi (column saxlanıldı, row ortaya alındı): (${savedStartCol}, ${midRow})`);
         } else {
-            // Qeyd edilməmişsə, default mövqeyi təyin et
-            const midRow = Math.floor(this.gridRows / 2);
+            // Qeyd edilməmişsə, default mövqeyi təyin et (ortada)
             this.startCell = { col: 0, row: midRow };
             this.debugLog(`🚪 Başlanğıc mövqeyi default: (${this.startCell.col}, ${this.startCell.row})`);
         }
@@ -6658,24 +8677,45 @@ class TowerDefenseGame {
     }
     
     gameLoop() {
-        const currentTime = Date.now();
-        let deltaTime = currentTime - this.lastUpdateTime;
-        
-        // Tab görünməz olsa belə oyun davam etsin
-        // Arxa planda olanda deltaTime məhdudiyyətini yumşalt
-        if (document.hidden) {
-            // Arxa planda olanda max 500ms (daha tolerant)
-            if (deltaTime > 500) {
-                deltaTime = 500;
-            }
-        } else {
-            // Tab görünürdürsə, max 100ms (normal məhdudiyyət)
-            if (deltaTime > 100) {
-                deltaTime = 100;
+        // CRITICAL: Verify this instance matches global instance
+        if (globalGameInstance && this !== globalGameInstance) {
+            console.error('[GAME-LOOP] ❌❌❌ CRITICAL: Wrong instance in gameLoop!', {
+                currentThis: this,
+                globalInstance: globalGameInstance,
+                gameStateMatch: this.gameState === globalGameInstance.gameState
+            });
+            // Use global instance instead
+            if (globalGameInstance && globalGameInstance.gameLoop) {
+                return globalGameInstance.gameLoop();
             }
         }
         
-        if (!this.gameState.isPaused && !this.gameState.gameOver) {
+        const currentTime = Date.now();
+        
+        // CRITICAL DEBUG: Instance verification
+        if (this._loopInstanceId === undefined) {
+            this._loopInstanceId = Math.random().toString(36).substr(2, 9);
+            console.log('[GAME-LOOP] 🔍 Instance ID:', this._loopInstanceId);
+        }
+        
+        // Game loop - update and render
+        if (!this.gameState.gameOver && !this.isPaused) {
+            let deltaTime = currentTime - this.lastUpdateTime;
+            
+            // Tab görünməz olsa belə oyun davam etsin
+            // Arxa planda olanda deltaTime məhdudiyyətini yumşalt
+            if (document.hidden) {
+                // Arxa planda olanda max 500ms (daha tolerant)
+                if (deltaTime > 500) {
+                    deltaTime = 500;
+                }
+            } else {
+                // Tab görünürdürsə, max 100ms (normal məhdudiyyət)
+                if (deltaTime > 100) {
+                    deltaTime = 100;
+                }
+            }
+            
             // Apply game speed
             const scaledDeltaTime = deltaTime * this.gameSpeed;
             
@@ -6695,15 +8735,19 @@ class TowerDefenseGame {
             this.updateBullets();
             this.updateExplosions();
             
-            // Update UI to show current enemy count
+            // Update UI
             this.updateUI();
             
             // Check game conditions
             this.checkGameOver();
             this.checkWaveComplete();
+            
+            // Update last update time
+            this.lastUpdateTime = currentTime;
+        } else if (this.isPaused) {
+            // Oyun pause-dadır, yalnız UI güncəlləmələri (render davam edir)
+            this.updateUI();
         }
-        
-        this.lastUpdateTime = currentTime;
         
         // Clear canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -6745,6 +8789,26 @@ class TowerDefenseGame {
             this.waveMessage = null; // Clear expired message
         }
         
+        // Draw pause message
+        if (this.isPaused && !this.gameState.gameOver) {
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.9;
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            this.ctx.fillRect(this.canvas.width / 2 - 140, this.canvas.height / 2 - 35, 280, 70);
+            this.ctx.strokeStyle = '#ff9800';
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeRect(this.canvas.width / 2 - 140, this.canvas.height / 2 - 35, 280, 70);
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.font = 'bold 28px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('⏸️ FASİLƏ', this.canvas.width / 2, this.canvas.height / 2 - 8);
+            this.ctx.font = '14px Arial';
+            this.ctx.fillStyle = '#cccccc';
+            this.ctx.fillText('"▶️ Davam" düyməsinə basın', this.canvas.width / 2, this.canvas.height / 2 + 18);
+            this.ctx.restore();
+        }
+        
         // Draw path blocked warning
         if (this.path.length === 0) {
             this.ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
@@ -6762,11 +8826,19 @@ class TowerDefenseGame {
         // Continue game loop
         // Tab görünməz olsa belə oyun davam etsin
         if (document.hidden) {
-            // Tab görünməzdirsə və interval yoxdursa, setInterval aktivləşdir
-            // (setInterval setupVisibilityHandling-də qurulur, burada sadəcə yoxlayırıq)
+            // Tab görünməzdirsə, setInterval istifadə et
+            // setInterval setupVisibilityHandling-də qurulur, amma burada fallback olaraq yoxlayırıq
             if (!this.gameLoopInterval) {
-                // Əgər interval yoxdursa, setTimeout fallback istifadə et
-                setTimeout(() => this.gameLoop(), 16); // ~60 FPS
+                // Əgər interval yoxdursa (səhv hal), setInterval aktivləşdir
+                const self = this;
+                this.gameLoopInterval = setInterval(() => {
+                    if (self && self.gameLoop) {
+                        self.gameLoop();
+                    } else {
+                        console.error('[GAME-LOOP] ❌ CRITICAL: this context lost in setInterval!', self);
+                    }
+                }, 16); // ~60 FPS
+                this.debugLog('Tab görünməzdir - setInterval fallback aktivləşdirildi');
             }
             // setInterval varsa, o avtomatik davam edəcək (loop-u təkrar çağırmayın)
         } else {
@@ -6776,7 +8848,14 @@ class TowerDefenseGame {
                 clearInterval(this.gameLoopInterval);
                 this.gameLoopInterval = null;
             }
-            requestAnimationFrame(() => this.gameLoop());
+            requestAnimationFrame(() => {
+                // CRITICAL: Ensure this is bound correctly
+                if (this && this.gameLoop) {
+                    this.gameLoop();
+                } else {
+                    console.error('[GAME-LOOP] ❌ CRITICAL: this context lost!', this);
+                }
+            });
         }
     }
     
@@ -6802,6 +8881,46 @@ class TowerDefenseGame {
 }
 
 // Initialize game when page loads
-window.addEventListener('load', () => {
-    new TowerDefenseGame();
-});
+// Sayfa yüklənməsini tezləşdirmək üçün DOMContentLoaded istifadə et (load yox)
+// load - bütün resimlər və CSS yüklənəndən sonra (yavaş)
+// DOMContentLoaded - DOM hazır olanda (sürətli)
+
+// CRITICAL: Global game instance - ensure only one instance exists
+let globalGameInstance = null;
+
+(function() {
+    const startTime = performance.now();
+    console.log('[PERF] Page initialization started');
+    
+    function initializeGame() {
+        // CRITICAL: Prevent multiple instances
+        if (globalGameInstance) {
+            console.warn('[INIT] ⚠️ Game already initialized! Skipping duplicate initialization.');
+            return;
+        }
+        
+        const initStartTime = performance.now();
+        console.log('[PERF] Game constructor starting...');
+        
+        const game = new TowerDefenseGame();
+        globalGameInstance = game; // Store global instance
+        
+        const initEndTime = performance.now();
+        console.log(`[PERF] Game constructor completed in ${(initEndTime - initStartTime).toFixed(2)}ms`);
+        
+        // init() funksiyasını asenkron çağır - bloklamasın
+        game.init().then(() => {
+            const totalTime = performance.now() - startTime;
+            console.log(`[PERF] Total page load time: ${totalTime.toFixed(2)}ms`);
+        }).catch(err => {
+            console.error('[PERF] Init error:', err);
+        });
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeGame);
+    } else {
+        // DOM artıq hazırdır
+        initializeGame();
+    }
+})();

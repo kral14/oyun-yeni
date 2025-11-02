@@ -85,10 +85,22 @@ def create_tables():
                 best_score BIGINT DEFAULT 0,
                 total_enemies_killed INTEGER DEFAULT 0,
                 total_time_played INTEGER DEFAULT 0,
+                diamonds INTEGER DEFAULT 500,
+                stars INTEGER DEFAULT 100,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Add diamonds and stars columns if they don't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE game_stats ADD COLUMN IF NOT EXISTS diamonds INTEGER DEFAULT 500")
+            cursor.execute("ALTER TABLE game_stats ADD COLUMN IF NOT EXISTS stars INTEGER DEFAULT 100")
+            # Update existing users who don't have diamonds/stars set
+            cursor.execute("UPDATE game_stats SET diamonds = 500 WHERE diamonds IS NULL")
+            cursor.execute("UPDATE game_stats SET stars = 100 WHERE stars IS NULL")
+        except Exception as e:
+            print(f"[INFO] Columns may already exist: {e}")
         
         # Game sessions table (for detailed game history)
         cursor.execute("""
@@ -235,10 +247,10 @@ def register():
         
         user_id = cursor.fetchone()[0]
         
-        # Create initial game stats
+        # Create initial game stats with starting diamonds (500) and stars (100)
         cursor.execute("""
-            INSERT INTO game_stats (user_id)
-            VALUES (%s)
+            INSERT INTO game_stats (user_id, diamonds, stars)
+            VALUES (%s, 500, 100)
         """, (user_id,))
         
         conn.commit()
@@ -300,10 +312,10 @@ def login():
             WHERE id = %s
         """, (user_id,))
         
-        # Get user stats
+        # Get user stats including diamonds and stars
         cursor.execute("""
             SELECT total_games, total_score, best_wave, best_score, 
-                   total_enemies_killed, total_time_played
+                   total_enemies_killed, total_time_played, diamonds, stars
             FROM game_stats
             WHERE user_id = %s
         """, (user_id,))
@@ -326,7 +338,9 @@ def login():
                 'best_wave': stats[2] if stats else 0,
                 'best_score': stats[3] if stats else 0,
                 'total_enemies_killed': stats[4] if stats else 0,
-                'total_time_played': stats[5] if stats else 0
+                'total_time_played': stats[5] if stats else 0,
+                'diamonds': stats[6] if stats and stats[6] is not None else 500,
+                'stars': stats[7] if stats and stats[7] is not None else 100
             }
         })
         
@@ -348,6 +362,9 @@ def save_game():
         enemies_killed = data.get('enemies_killed', 0)
         game_duration = data.get('game_duration', 0)
         game_data = data.get('game_data', {})
+        # Optional: diamonds and stars updates from game
+        diamonds_earned = data.get('diamonds_earned', 0)
+        stars_earned = data.get('stars_earned', 0)
         
         if not user_id:
             return jsonify({'success': False, 'error': 'User ID tələb olunur'}), 400
@@ -364,18 +381,34 @@ def save_game():
         
         session_id = cursor.fetchone()[0]
         
-        # Update game stats
-        cursor.execute("""
+        # Update game stats including diamonds and stars
+        update_fields = [
+            "total_games = total_games + 1",
+            "total_score = total_score + %s",
+            "best_wave = GREATEST(best_wave, %s)",
+            "best_score = GREATEST(best_score, %s)",
+            "total_enemies_killed = total_enemies_killed + %s",
+            "total_time_played = total_time_played + %s",
+            "updated_at = CURRENT_TIMESTAMP"
+        ]
+        update_values = [score, wave_reached, score, enemies_killed, game_duration]
+        
+        # Add diamonds and stars updates if provided
+        if diamonds_earned != 0:
+            update_fields.append("diamonds = diamonds + %s")
+            update_values.append(diamonds_earned)
+        
+        if stars_earned != 0:
+            update_fields.append("stars = stars + %s")
+            update_values.append(stars_earned)
+        
+        update_values.append(user_id)
+        
+        cursor.execute(f"""
             UPDATE game_stats
-            SET total_games = total_games + 1,
-                total_score = total_score + %s,
-                best_wave = GREATEST(best_wave, %s),
-                best_score = GREATEST(best_score, %s),
-                total_enemies_killed = total_enemies_killed + %s,
-                total_time_played = total_time_played + %s,
-                updated_at = CURRENT_TIMESTAMP
+            SET {', '.join(update_fields)}
             WHERE user_id = %s
-        """, (score, wave_reached, score, enemies_killed, game_duration, user_id))
+        """, update_values)
         
         conn.commit()
         cursor.close()
@@ -397,6 +430,8 @@ def save_game():
 @app.route('/api/get-stats', methods=['GET'])
 def get_stats():
     """Get user stats"""
+    conn = None
+    cursor = None
     try:
         user_id = request.args.get('user_id', type=int)
         
@@ -408,32 +443,130 @@ def get_stats():
         
         cursor.execute("""
             SELECT total_games, total_score, best_wave, best_score, 
-                   total_enemies_killed, total_time_played
+                   total_enemies_killed, total_time_played, diamonds, stars
             FROM game_stats
             WHERE user_id = %s
         """, (user_id,))
         
         stats = cursor.fetchone()
+        
+        # Əgər stats yoxdursa, default dəyərlər qaytar
+        if not stats:
+            cursor.close()
+            db_pool.putconn(conn)
+            conn = None
+            cursor = None
+            
+            # Default stats qaytar - yeni istifadəçi üçün
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total_games': 0,
+                    'total_score': 0,
+                    'best_wave': 0,
+                    'best_score': 0,
+                    'total_enemies_killed': 0,
+                    'total_time_played': 0,
+                    'diamonds': 500,
+                    'stars': 100
+                }
+            })
+        
         cursor.close()
         db_pool.putconn(conn)
-        
-        if not stats:
-            return jsonify({'success': False, 'error': 'Statistika tapılmadı'}), 404
+        conn = None
+        cursor = None
         
         return jsonify({
             'success': True,
             'stats': {
-                'total_games': stats[0],
-                'total_score': stats[1],
-                'best_wave': stats[2],
-                'best_score': stats[3],
-                'total_enemies_killed': stats[4],
-                'total_time_played': stats[5]
+                'total_games': stats[0] if stats[0] is not None else 0,
+                'total_score': stats[1] if stats[1] is not None else 0,
+                'best_wave': stats[2] if stats[2] is not None else 0,
+                'best_score': stats[3] if stats[3] is not None else 0,
+                'total_enemies_killed': stats[4] if stats[4] is not None else 0,
+                'total_time_played': stats[5] if stats[5] is not None else 0,
+                'diamonds': stats[6] if stats[6] is not None else 500,
+                'stars': stats[7] if stats[7] is not None else 100
             }
         })
         
     except Exception as e:
         print(f"[ERROR] Get stats error: {e}")
+        import traceback
+        traceback.print_exc()
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                db_pool.putconn(conn)
+            except:
+                pass
+        return jsonify({'success': False, 'error': f'Xəta: {str(e)}'}), 500
+
+@app.route('/api/update-currency', methods=['POST'])
+def update_currency():
+    """Update user diamonds and stars"""
+    conn = None
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        diamonds_change = data.get('diamonds_change', 0)  # Can be positive or negative
+        stars_change = data.get('stars_change', 0)  # Can be positive or negative
+        
+        if not user_id:
+            return jsonify({'success': False, 'error': 'User ID tələb olunur'}), 400
+        
+        conn = db_pool.getconn()
+        cursor = conn.cursor()
+        
+        # Update diamonds and stars
+        update_fields = []
+        update_values = []
+        
+        if diamonds_change != 0:
+            update_fields.append("diamonds = GREATEST(0, diamonds + %s)")
+            update_values.append(diamonds_change)
+        
+        if stars_change != 0:
+            update_fields.append("stars = GREATEST(0, stars + %s)")
+            update_values.append(stars_change)
+        
+        if not update_fields:
+            cursor.close()
+            db_pool.putconn(conn)
+            return jsonify({'success': True, 'message': 'Dəyişiklik yoxdur'})
+        
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        update_values.append(user_id)
+        
+        cursor.execute(f"""
+            UPDATE game_stats
+            SET {', '.join(update_fields)}
+            WHERE user_id = %s
+            RETURNING diamonds, stars
+        """, update_values)
+        
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        db_pool.putconn(conn)
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'message': 'Valyuta yeniləndi',
+                'diamonds': result[0],
+                'stars': result[1]
+            })
+        else:
+            return jsonify({'success': False, 'error': 'İstifadəçi tapılmadı'}), 404
+        
+    except Exception as e:
+        print(f"[ERROR] Update currency error: {e}")
         if conn:
             cursor.close()
             db_pool.putconn(conn)
@@ -478,6 +611,9 @@ def forgot_password():
         # Send email with reset link
         # RESET_PASSWORD_URL environment variable-dan al, yoxdursa BASE_URL istifadə et
         base_reset_url = RESET_PASSWORD_URL or os.environ.get('BASE_URL', 'http://127.0.0.1:5000')
+        # URL-in sonunda slash varsa, onu sil
+        base_reset_url = base_reset_url.rstrip('/')
+        # Link-i doğru şəkildə yarat (təkrarlanmadan)
         reset_link = f"{base_reset_url}/reset-password.html?token={token}"
         email_subject = "Şifrə Sıfırlama - Qüllə Müdafiəsi"
         email_body = f"""
@@ -517,6 +653,88 @@ def forgot_password():
             db_pool.putconn(conn)
         return jsonify({'success': False, 'error': f'Xəta: {str(e)}'}), 500
 
+@app.route('/api/verify-reset-token', methods=['GET'])
+def verify_reset_token():
+    """Get username from reset token (for displaying on reset page)"""
+    conn = None
+    try:
+        token = request.args.get('token', '').strip()
+        
+        if not token:
+            return jsonify({'success': False, 'error': 'Token tələb olunur'}), 400
+        
+        conn = db_pool.getconn()
+        cursor = None
+        try:
+            cursor = conn.cursor()
+            
+            # Find token and get username
+            cursor.execute("""
+                SELECT prt.user_id, prt.expires_at, prt.used, u.username
+                FROM password_reset_tokens prt
+                JOIN users u ON prt.user_id = u.id
+                WHERE prt.token = %s
+            """, (token,))
+            
+            token_data = cursor.fetchone()
+            
+            if not token_data:
+                cursor.close()
+                db_pool.putconn(conn)
+                return jsonify({'success': False, 'error': 'Etibarsız və ya mövcud olmayan token'}), 400
+            
+            user_id, expires_at, used, username = token_data
+            
+            # Make expires_at timezone-aware if it's naive (PostgreSQL returns naive datetime)
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            
+            # Check if token is expired
+            if datetime.now(UTC) > expires_at:
+                cursor.close()
+                db_pool.putconn(conn)
+                return jsonify({'success': False, 'error': 'Token müddəti bitib'}), 400
+            
+            # Check if token already used
+            if used:
+                cursor.close()
+                db_pool.putconn(conn)
+                return jsonify({'success': False, 'error': 'Bu token artıq istifadə edilib'}), 400
+            
+            cursor.close()
+            db_pool.putconn(conn)
+            
+            return jsonify({
+                'success': True,
+                'username': username,
+                'message': 'Token etibarlıdır'
+            })
+        except Exception as inner_e:
+            print(f"[ERROR] Inner verify reset token error: {inner_e}")
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    db_pool.putconn(conn)
+                except:
+                    pass
+            raise inner_e
+        
+    except Exception as e:
+        print(f"[ERROR] Verify reset token error: {e}")
+        import traceback
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        if conn:
+            try:
+                cursor.close()
+            except:
+                pass
+            db_pool.putconn(conn)
+        return jsonify({'success': False, 'error': f'Xəta: {str(e)}'}), 500
+
 @app.route('/api/reset-password', methods=['POST'])
 def reset_password():
     """Reset password using token"""
@@ -551,6 +769,10 @@ def reset_password():
         
         user_id, expires_at, used = token_data
         
+        # Make expires_at timezone-aware if it's naive (PostgreSQL returns naive datetime)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        
         # Check if token is expired
         if datetime.now(UTC) > expires_at:
             cursor.close()
@@ -563,7 +785,7 @@ def reset_password():
             db_pool.putconn(conn)
             return jsonify({'success': False, 'error': 'Bu token artıq istifadə edilib'}), 400
         
-        # Update password
+        # Update password (token already verified the user)
         new_password_hash = hash_password(new_password)
         cursor.execute("""
             UPDATE users
@@ -755,6 +977,7 @@ def forgot_password_page():
     return send_from_directory(app.template_folder, 'forgot-password.html')
 
 @app.route('/reset-password.html')
+@app.route('/reset-password.html/')
 def reset_password_page():
     """Serve reset password page"""
     return send_from_directory(app.template_folder, 'reset-password.html')
@@ -786,6 +1009,33 @@ def serve_page(path):
     # Skip assets - handled by serve_static route above
     if path.startswith('assets/'):
         return jsonify({'error': 'Asset not found'}), 404
+    
+    # URL duplikasiyasını normalize et (məsələn: reset-password.html/reset-password.html -> reset-password.html)
+    if 'reset-password.html' in path:
+        # Eğer path'de reset-password.html iki kere varsa, normalize et
+        parts = path.split('/')
+        if parts.count('reset-password.html') > 1:
+            # İlk reset-password.html'i al, query string'i koru
+            normalized_path = 'reset-password.html'
+            # Query string'i tap
+            if '?' in path:
+                # Find the query string from the original path
+                query_start = path.find('?')
+                query_part = path[query_start:]
+                normalized_path = normalized_path + query_part
+            path = normalized_path
+        # Eğer path'de reset-password.html/ varsa, normalize et (sonunda slash varsa)
+        elif path == 'reset-password.html/' or path.startswith('reset-password.html/'):
+            # Remove trailing slash and normalize
+            normalized_path = path.rstrip('/')
+            if normalized_path != 'reset-password.html':
+                # If there's something after reset-password.html/, extract query string
+                if '?' in normalized_path:
+                    query_start = normalized_path.find('?')
+                    normalized_path = 'reset-password.html' + normalized_path[query_start:]
+                else:
+                    normalized_path = 'reset-password.html'
+            path = normalized_path
     
     # Serve HTML pages from pages folder
     if not path.endswith('.html'):

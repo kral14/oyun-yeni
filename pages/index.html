@@ -190,8 +190,9 @@
                             <input type="checkbox" id="autoStart" />
                             <label for="autoStart" style="color: #fff; cursor: pointer;">Avtomatik Başlat</label>
                         </div>
-                        <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Fasilə</button>
                         <button id="restartGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Yenidən başlat</button>
+                        <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #ff9800, #f57c00);">⏸️ Fasilə</button>
+                        <button id="resumeGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049); display: none;">▶️ Davam</button>
                         <button id="saveGameState" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049);">💾 Oyunu Qeyd Et</button>
                         
                         <!-- Avtomatik Can Yeniləmə Bölməsi -->
@@ -202,7 +203,7 @@
                                 <!-- Qüllə Seçim Paneli (gizli) -->
                                 <div id="globalAutoHealPanel" style="display: none; flex-direction: column; gap: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; max-height: 300px; overflow-y: auto;">
                                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                        <input type="number" id="globalAutoHealThreshold" min="1" max="100" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
+                                        <input type="number" id="globalAutoHealThreshold" min="1" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
                                         <label style="color: #fff; font-size: 12px;">Can Dəyəri (1-100)</label>
                                     </div>
                                     <div id="globalAutoHealTowersList" style="display: flex; flex-direction: column; gap: 6px;">
@@ -226,7 +227,7 @@
                 </div>
 
                 <div class="shop-tab-content" id="tab-towers">
-                    <div class="tower-options" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; padding: 20px;">
+                    <div class="tower-options" style="padding: 20px;">
                         <div class="tower-option" data-tower="basic" data-damage="20" data-firerate="1000" data-cost="$50">
                             <div class="tower-icon basic-tower"></div>
                             <div class="tower-info">
@@ -401,13 +402,14 @@
             </div>
             <div style="display:flex; gap:8px;">
                 <button class="ctx-btn" id="ctxHeal">🩹 $20</button>
+                <button class="ctx-btn" id="ctxHealthUpgrade">❤️ Can Artır: $50</button>
             </div>
             <div style="display:flex; flex-direction:column; gap:4px; padding:6px; background:rgba(255,255,255,0.05); border-radius:4px;">
                 <div style="display:flex; gap:4px; align-items:center;">
                     <button class="ctx-btn" id="ctxAutoHealToggle" style="flex:1;">🔄 Avto Can: Kapalı</button>
                 </div>
                 <div id="ctxAutoHealSettings" style="display:none; gap:4px; align-items:center; flex-direction:row;">
-                    <input type="number" id="ctxAutoHealThreshold" min="1" max="100" value="5" style="width:60px; padding:4px; background:rgba(0,0,0,0.5); border:1px solid #00bcd4; border-radius:4px; color:#fff; font-size:12px;" />
+                    <input type="number" id="ctxAutoHealThreshold" min="1" value="5" style="width:60px; padding:4px; background:rgba(0,0,0,0.5); border:1px solid #00bcd4; border-radius:4px; color:#fff; font-size:12px;" />
                     <button class="ctx-btn" id="ctxAutoHealConfirm" style="flex:1; padding:4px; font-size:11px;">✓ Təsdiq</button>
                 </div>
             </div>

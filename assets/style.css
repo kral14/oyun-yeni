@@ -136,11 +136,18 @@ body {
 /* Scroll edilə bilən content area */
 .shop-content-wrapper {
     overflow-y: auto;
+    overflow-x: hidden;
     flex: 1;
     padding: 15px;
     display: flex;
     flex-direction: column;
     gap: 15px;
+    /* Over-scroll engelleme - liste sonunda durmalı */
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: none;
+    -webkit-overflow-scrolling: touch;
+    /* Momentum scroll engelleme (iOS) */
+    scroll-behavior: smooth;
 }
 
 .tower-shop.hidden {
@@ -236,6 +243,10 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding: 20px;
+    /* Over-scroll engelleme */
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: none;
 }
 
 .tower-option {
@@ -244,23 +255,57 @@ body {
     align-items: center;
     gap: 8px;
     padding: 12px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 2px solid transparent;
+    background: rgba(20, 20, 30, 0.85); /* Kutu arka planı */
+    border: 2px solid rgba(74, 144, 226, 0.5); /* Mavi çerçeve */
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
     min-width: 80px;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    -webkit-user-drag: none;
+    -khtml-user-drag: none;
+    -moz-user-drag: none;
+    -o-user-drag: none;
+    user-drag: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .tower-option:hover {
-    background: rgba(74, 144, 226, 0.2);
-    border-color: #4a90e2;
+    background: rgba(30, 30, 45, 0.9); /* Hover'da biraz daha açık */
+    border-color: rgba(74, 144, 226, 0.8);
     transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .tower-option.selected {
-    background: rgba(74, 144, 226, 0.3);
-    border-color: #4a90e2;
+    background: rgba(30, 30, 45, 0.9); /* Seçili olduğunda */
+    border: 2px solid rgba(255, 255, 255, 0.9); /* Beyaz neon çerçeve */
+    box-shadow: 
+        0 0 10px rgba(255, 255, 255, 0.8),
+        0 0 20px rgba(255, 255, 255, 0.6),
+        0 0 30px rgba(255, 255, 255, 0.4),
+        inset 0 0 10px rgba(255, 255, 255, 0.1);
+    animation: neon-glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes neon-glow {
+    0% {
+        box-shadow: 
+            0 0 10px rgba(255, 255, 255, 0.8),
+            0 0 20px rgba(255, 255, 255, 0.6),
+            0 0 30px rgba(255, 255, 255, 0.4),
+            inset 0 0 10px rgba(255, 255, 255, 0.2);
+    }
+    100% {
+        box-shadow: 
+            0 0 15px rgba(255, 255, 255, 1),
+            0 0 30px rgba(255, 255, 255, 0.8),
+            0 0 45px rgba(255, 255, 255, 0.6),
+            inset 0 0 15px rgba(255, 255, 255, 0.3);
+    }
 }
 
 .tower-icon {
@@ -284,36 +329,44 @@ body {
     font-weight: bold;
 }
 
+/* Kule iconları artık canvas ile çiziliyor - CSS background'lar kaldırıldı */
 .basic-tower {
-    background: linear-gradient(45deg, #8B4513, #A0522D);
+    background: transparent !important;
+    background-image: none !important;
 }
 
 .rapid-tower {
-    background: linear-gradient(45deg, #4169E1, #6495ED);
+    background: transparent !important;
+    background-image: none !important;
 }
 
 .heavy-tower {
-    background: linear-gradient(45deg, #DC143C, #FF6347);
+    background: transparent !important;
+    background-image: none !important;
 }
 
 .ice-tower {
-    background: linear-gradient(45deg, #00CED1, #87CEEB);
-    border-color: #00CED1;
+    background: transparent !important;
+    background-image: none !important;
+    border-color: transparent !important;
 }
 
 .flame-tower {
-    background: linear-gradient(45deg, #FF4500, #FF6347);
-    border-color: #FF4500;
+    background: transparent !important;
+    background-image: none !important;
+    border-color: transparent !important;
 }
 
 .laser-tower {
-    background: linear-gradient(45deg, #FF1493, #FF69B4);
-    border-color: #FF1493;
+    background: transparent !important;
+    background-image: none !important;
+    border-color: transparent !important;
 }
 
 .plasma-tower {
-    background: linear-gradient(45deg, #9370DB, #BA55D3);
-    border-color: #9370DB;
+    background: transparent !important;
+    background-image: none !important;
+    border-color: transparent !important;
 }
 
 .tower-info {
