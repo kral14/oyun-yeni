@@ -51,8 +51,17 @@ class TowerDefenseGame {
             this.API_BASE_URL = null; // GitHub Pages-də backend yoxdur
             this.useLocalStorage = true; // GitHub Pages-də localStorage istifadə et
         } else {
-            this.API_BASE_URL = '/api'; // Local server
-            this.useLocalStorage = false;
+            // Local static server (e.g., VSCode Live Server) or iframe test harness: use localStorage only
+            const host = window.location.hostname || '';
+            const inIframe = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+            const isLocalStatic = host === 'localhost' || host === '127.0.0.1';
+            if (isLocalStatic || inIframe) {
+                this.API_BASE_URL = null;
+                this.useLocalStorage = true;
+            } else {
+                this.API_BASE_URL = '/api'; // Fallback local backend
+                this.useLocalStorage = false;
+            }
         }
         
         // Online/Offline detection - bağlantı statusunu yoxla
@@ -431,7 +440,10 @@ class TowerDefenseGame {
             // If tower is bound to a stable cell id, resolve current col/row
             if (tower.cellId) {
                 const pos = this.getCellPosById(tower.cellId);
-                if (pos) { tower.col = pos.col; tower.row = pos.row; }
+                if (pos) { 
+                    tower.col = pos.col; 
+                    tower.row = pos.row; 
+                }
             } else {
                 // Backfill logical grid position if missing (legacy towers)
                 if (typeof tower.col !== 'number' || typeof tower.row !== 'number') {
@@ -440,6 +452,9 @@ class TowerDefenseGame {
                     tower.col = c; tower.row = r;
                 }
             }
+            // CRITICAL: Clamp col/row to valid grid bounds (fixes out-of-bounds warnings after auto-resize)
+            tower.col = Math.max(0, Math.min(this.gridCols - 1, tower.col || 0));
+            tower.row = Math.max(0, Math.min(this.gridRows - 1, tower.row || 0));
             // Calculate new pixel position based on grid cell
             const newX = this.gridOffsetX + tower.col * this.gridSize + this.gridSize / 2;
             const newY = this.gridOffsetY + tower.row * this.gridSize + this.gridSize / 2;
@@ -8338,13 +8353,14 @@ class TowerDefenseGame {
         
         // Qüllələr - köhnə col/row mövqelərini saxla (grid genişləndirilmiş olsa belə)
         // Pixel koordinatları sonradan hesablanacaq (grid ölçüsü yeniləndikdən sonra)
+        // NOTE: col/row dəyərləri updateGridDimensions() çağrıldıqdan SONRA clamp ediləcək
         if (state.towers && Array.isArray(state.towers)) {
             this.towers = state.towers.map(t => {
                 // Qüllənin köhnə grid mövqesini saxla (col, row)
                 // Pixel koordinatları sonradan yenidən hesablanacaq
                 return {
-                    col: t.col,
-                    row: t.row,
+                    col: t.col || 0,
+                    row: t.row || 0,
                     cellId: null, // Sonradan yenidən hesablanacaq
                     x: 0, // Sonradan hesablanacaq
                     y: 0, // Sonradan hesablanacaq

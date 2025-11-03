@@ -7,10 +7,10 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Tower Defense — Mobile</title>
-    <link rel="stylesheet" href="assets/style.css?v=1">
-    <link rel="stylesheet" href="assets/components/profile/profile.css?v=1">
-    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="assets/manifest.webmanifest">
+    <link rel="stylesheet" href="../assets/style.css?v=1">
+    <link rel="stylesheet" href="../assets/components/profile/profile.css?v=1">
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="../assets/manifest.webmanifest">
     <meta name="theme-color" content="#0a84ff">
     <style>
         /* Force mobile-first layout: full-width main, header hidden */
@@ -417,8 +417,19 @@
     <div class="game-container">
         <div class="game-header"></div>
 
-        <div class="game-area">
-            <canvas id="gameCanvas"></canvas>
+        <div class="game-area" style="display:flex; align-items:stretch; gap:8px;">
+            <!-- Separate left HUD column (outside of board) -->
+            <div id="hudColumn" style="width: 90px; display:flex;">
+                <div class="hud-bottom" id="hudBottom" style="flex:1; overflow:auto; -webkit-overflow-scrolling:touch; touch-action: pan-y; background: rgba(10,10,10,0.9); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;"></div>
+            </div>
+            <div id="boardContent" style="position:relative; flex:1; height:100%; overflow:hidden;">
+                <!-- Transform target only wraps the playfield now -->
+                <div id="boardTransform" style="position:absolute; inset:0;">
+                    <div id="playfield" style="position:relative; width:100%; height:100%;">
+                        <canvas id="gameCanvas" style="position:absolute; inset:0; width:100%; height:100%; display:block; background:#000; border-radius:8px;"></canvas>
+                    </div>
+                </div>
+            </div>
             <div id="panLayer"></div>
 
             <!-- Backdrop for panel -->
@@ -505,6 +516,10 @@
                             <input type="checkbox" id="manualPanResizeToggle">
                             <span>✋ Elle Pan/Zoom</span>
                         </label>
+                        <label style="display:flex; align-items:center; gap:6px; margin-left:8px;">
+                            <input type="checkbox" id="hideHudToggle">
+                            <span>🧩 Sol paneli gizlə</span>
+                        </label>
                     </div>
                     <div class="board-controls" style="margin-top:8px">
                         <label>MiQyas</label>
@@ -534,7 +549,7 @@
                                     <div>⚔️ Zərər: 20</div>
                                     <div>🔥 Atəş sürəti: 1.0s</div>
                                     <div>💰 Qiymət: $50</div>
-                                </div>
+                        </div>
                                 <div class="tooltip-desc">Balanslı zərər və atəş sürəti ilə orta səviyyəli qüllə</div>
                             </div>
                         </div>
@@ -550,7 +565,7 @@
                                     <div>⚔️ Zərər: 10</div>
                                     <div>🔥 Atəş sürəti: 0.3s</div>
                                     <div>💰 Qiymət: $100</div>
-                                </div>
+                        </div>
                                 <div class="tooltip-desc">Çox sürətli atəş açır, az zərər verir - çox sayda düşmən üçün ideal</div>
                             </div>
                         </div>
@@ -649,16 +664,16 @@
                             <div class="tower-info">
                                 <div class="tower-name">+2 Sətir (yuxarı + aşağı)</div>
                                 <div class="tower-cost">💎<span id="costRows">5</span></div>
-                            </div>
+                        </div>
                             <button id="buyRows" class="game-controls" style="padding:8px 12px">Al</button>
                         </div>
                         <div class="tower-option" style="cursor:default">
                             <div class="tower-info">
                                 <div class="tower-name">+1 Sütun (mərkəzdən sağa)</div>
                                 <div class="tower-cost">💎<span id="costCol">3</span></div>
-                            </div>
+                    </div>
                             <button id="buyCol" class="game-controls" style="padding:8px 12px">Al</button>
-                        </div>
+                </div>
                     </div>
                     <div style="margin-top: 20px; padding: 15px; background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 8px;">
                         <div style="margin-bottom: 12px; font-weight: bold; color: #00d4ff; font-size: 14px; text-align: center;">🎁 Hədiyyə Kodu</div>
@@ -693,11 +708,11 @@
                 <button class="ctx-btn" id="ctxRange">🌀 <span id="ctxRangeVal">0</span> (<span id="ctxRangeUp">0/3</span>) — $<span id="ctxRangeCost">50</span></button>
                 <button class="ctx-btn" id="ctxDamage">💥 <span id="ctxDamageVal">0</span> (<span id="ctxDamageUp">0/3</span>) — $<span id="ctxDamageCost">50</span></button>
                 <button class="ctx-btn" id="ctxRate">⚡ <span id="ctxRateVal">0</span> (<span id="ctxRateUp">0/3</span>) — $<span id="ctxRateCost">50</span></button>
-            </div>
+        </div>
             <div style="display:flex; gap:8px;">
                 <button class="ctx-btn" id="ctxHeal">🩹 $20</button>
                 <button class="ctx-btn" id="ctxHealthUpgrade">❤️ Can Artır: $50</button>
-            </div>
+        </div>
             <div style="display:flex; flex-direction:column; gap:4px; padding:6px; background:rgba(255,255,255,0.05); border-radius:4px;">
                 <div style="display:flex; gap:4px; align-items:center;">
                     <button class="ctx-btn" id="ctxAutoHealToggle" style="flex:1;">🔄 Avto Can: Kapalı</button>
@@ -717,32 +732,31 @@
                 <button class="ctx-btn" id="ctxSell">🪙</button>
             </div>
         </div>
-        <!-- Bottom HUD stats -->
-        <div class="hud-bottom" id="hudBottom">
-            <div class="chip"><span class="label">❤</span><span class="value" id="health">100</span></div>
-            <div class="chip"><span class="label">$</span><span class="value" id="money">500</span></div>
-            <div class="chip"><span class="label">Wave</span><span class="value" id="wave">1</span></div>
-            <div class="chip"><span class="label">Score</span><span class="value" id="score">0</span></div>
-            <div class="chip"><span class="label">Lvl</span><span class="value" id="level">1</span></div>
-            <div class="chip"><span class="label">💎</span><span class="value" id="diamonds">0</span></div>
-            <div class="chip"><span class="label">⭐</span><span class="value" id="stars">0</span></div>
-            <div class="chip"><span class="label">Enemies</span><span class="value" id="enemyCount">0</span></div>
-        </div>
+        <!-- HUD content is now injected inside #hudBottom (inside boardContent) by script below -->
 
         <!-- Floating toggle button -->
         <button class="shop-toggle" id="toggleShop" aria-label="Open shop">☰</button>
     </div>
 
     <script>
-        // Check login status - GitHub Pages üçün skip et
+        // Check login status with flexible dev/test skipping
         (function(){
-            // GitHub Pages üçün login check skip et (backend yoxdur)
-            const isGitHubPages = window.location.hostname.includes('github.io');
-            if (isGitHubPages) {
-                // GitHub Pages-də backend yoxdur, login check skip
+            const host = window.location.hostname || '';
+            const isGitHubPages = host.includes('github.io');
+            const isLocalDev = host === 'localhost' || host === '127.0.0.1';
+            const inIframe = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+            const url = new URL(window.location.href);
+            const skipParam = url.searchParams.get('skipAuth') === '1';
+
+            // Skip auth on GitHub Pages, local dev, if embedded in test harness, or explicit param
+            if (isGitHubPages || isLocalDev || inIframe || skipParam) {
+                // Ensure a dummy session so game code works
+                if (!localStorage.getItem('towerDefenseLoggedIn')) localStorage.setItem('towerDefenseLoggedIn','true');
+                if (!localStorage.getItem('towerDefenseUserId')) localStorage.setItem('towerDefenseUserId','1');
                 return;
             }
-            // Render-da backend var, login lazımdır
+
+            // Otherwise require login
             const loggedIn = localStorage.getItem('towerDefenseLoggedIn');
             const userId = localStorage.getItem('towerDefenseUserId');
             if (loggedIn !== 'true' || !userId) {
@@ -758,12 +772,12 @@
                 var v = Date.now().toString();
                 // Inject versioned game.js
                 var s = document.createElement('script');
-                s.src = 'assets/game.js?v=' + v;
+                s.src = '../assets/game.js?v=' + v;
                 s.defer = false;
                 document.head.appendChild(s);
                 // Profil JavaScript
                 var profileScript = document.createElement('script');
-                profileScript.src = 'assets/components/profile/profile.js?v=' + v;
+                profileScript.src = '../assets/components/profile/profile.js?v=' + v;
                 profileScript.defer = false;
                 document.head.appendChild(profileScript);
             } catch(e) {}
@@ -1040,6 +1054,9 @@
         // Board zoom/pan controls (overlay captures when pan mode is active)
         (function(){
             const canvas = document.getElementById('gameCanvas');
+            const boardContent = document.getElementById('boardContent');
+            const boardTransform = document.getElementById('boardTransform');
+            const hudColumn = document.getElementById('hudColumn');
             const panLayer = document.getElementById('panLayer');
             const zoom = document.getElementById('boardZoom');
             const zoomLabel = document.getElementById('boardZoomLabel');
@@ -1049,16 +1066,17 @@
             let currentZoom = 1; let panX = 0; let panY = 0;
             function applyTransform(){
                 const panEnabled = !!(panToggle && panToggle.checked);
-                canvas.style.transformOrigin = 'center center';
+                const target = boardTransform || boardContent || canvas;
+                target.style.transformOrigin = 'center center';
                 // Global state-i yenilə
                 window.boardZoomState.currentZoom = currentZoom;
                 window.boardZoomState.panX = panX;
                 window.boardZoomState.panY = panY;
                 if (panEnabled || (currentZoom !== 1)) {
-                    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+                    target.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
                 } else {
                     // Ensure no residual transform when pan disabled
-                    canvas.style.transform = '';
+                    target.style.transform = '';
                     panX = 0; panY = 0;
                     window.boardZoomState.panX = 0;
                     window.boardZoomState.panY = 0;
@@ -1091,7 +1109,7 @@
                 const container = document.querySelector('.game-area');
                 if (container) {
                     const cRect = container.getBoundingClientRect();
-                    const kRect = canvas.getBoundingClientRect();
+                    const kRect = (boardTransform||boardContent||canvas).getBoundingClientRect();
                     const maxX = Math.max(0, (kRect.width*currentZoom - cRect.width) / 2);
                     const maxY = Math.max(0, (kRect.height*currentZoom - cRect.height) / 2);
                     panX = Math.min(maxX, Math.max(-maxX, panX));
@@ -1103,35 +1121,31 @@
             setZoomFromSlider();
             window.addEventListener('resize', ()=>{ if(!panToggle || !panToggle.checked){ panX=0; panY=0; } applyTransform(); });
         })();
-        // Position HUD along the left edge of the canvas in landscape
+        // Inject HUD chips into the HUD div (now inside boardContent)
         (function(){
             const hud = document.getElementById('hudBottom');
-            const canvas = document.getElementById('gameCanvas');
-            const container = document.querySelector('.game-container');
-            if (!hud || !canvas || !container) return;
-            function alignHud(){
-                const isLandscape = window.matchMedia('(orientation: landscape)').matches;
-                if (!isLandscape) { hud.style.left=''; hud.style.top=''; hud.style.height=''; return; }
-                const cRect = canvas.getBoundingClientRect();
-                const kRect = container.getBoundingClientRect();
-                const left = cRect.left - kRect.left;
-                const top = cRect.top - kRect.top;
-                const height = cRect.height;
-                hud.style.left = Math.max(0, Math.round(left - (parseInt(getComputedStyle(hud).width)||72) - 8)) + 'px';
-                hud.style.top = Math.round(top) + 'px';
-                hud.style.height = Math.round(height) + 'px';
-            }
-            const ro = new ResizeObserver(alignHud);
-            ro.observe(canvas);
-            window.addEventListener('resize', alignHud);
-            window.addEventListener('orientationchange', function(){ setTimeout(alignHud, 200); });
-            setTimeout(alignHud, 50);
+            if (!hud) return;
+            // Inject HUD chips
+            hud.innerHTML = `
+                <div class="chip"><span class="label">❤</span><span class="value" id="health">100</span></div>
+                <div class="chip"><span class="label">$</span><span class="value" id="money">500</span></div>
+                <div class="chip"><span class="label">Wave</span><span class="value" id="wave">1</span></div>
+                <div class="chip"><span class="label">Score</span><span class="value" id="score">0</span></div>
+                <div class="chip"><span class="label">Lvl</span><span class="value" id="level">1</span></div>
+                <div class="chip"><span class="label">💎</span><span class="value" id="diamonds">0</span></div>
+                <div class="chip"><span class="label">⭐</span><span class="value" id="stars">0</span></div>
+                <div class="chip"><span class="label">Enemies</span><span class="value" id="enemyCount">0</span></div>
+            `;
         })();
         // Register service worker for PWA installability
         (function(){
-            if ('serviceWorker' in navigator) {
+            // Disable service worker in local/iframe test to avoid 404 and caching issues
+            const host = window.location.hostname || '';
+            const inIframe = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+            const isLocal = host === 'localhost' || host === '127.0.0.1';
+            if ('serviceWorker' in navigator && !isLocal && !inIframe) {
                 window.addEventListener('load', function(){
-                    navigator.serviceWorker.register('assets/sw.js?v=2.1').then(function(reg){ reg.update && reg.update(); }).catch(function(){});
+                    navigator.serviceWorker.register('../assets/sw.js?v=2.1').then(function(reg){ reg.update && reg.update(); }).catch(function(){});
                 });
             }
         })();
@@ -1228,9 +1242,9 @@
                             }
                         }
                     });
-                }
-            })();
-            // Tabs + Board controls
+            }
+        })();
+        // Tabs + Board controls
         (function(){
             const tabs = document.querySelectorAll('.tab-btn');
             const panes = document.querySelectorAll('.tab-content');
@@ -1272,30 +1286,51 @@
             // Auto-resize feature: telefon ölçülərinə görə taxtanı optimize et
             const autoResizeToggle = document.getElementById('autoResizeToggle');
             const manualPanResizeToggle = document.getElementById('manualPanResizeToggle');
+            const hideHudToggle = document.getElementById('hideHudToggle');
             let autoResizeEnabled = true;
             let manualPanResizeEnabled = false;
             let autoResizeTimer = null;
 
+            function getViewportSize(){
+                try {
+                    const vv = window.visualViewport;
+                    if (vv && vv.width && vv.height) {
+                        return { w: vv.width, h: vv.height };
+                    }
+                } catch(e){}
+                return { w: window.innerWidth, h: window.innerHeight };
+            }
+
+            function safeAreaInsets(){
+                const cs = getComputedStyle(document.documentElement);
+                const px = (v)=> parseInt(cs.getPropertyValue(v) || '0', 10) || 0;
+                return {
+                    left: px('env(safe-area-inset-left)'),
+                    right: px('env(safe-area-inset-right)'),
+                    top: px('env(safe-area-inset-top)'),
+                    bottom: px('env(safe-area-inset-bottom)')
+                };
+            }
+
             function calculateOptimalBoardSize() {
                 if (!window.game || !autoResizeEnabled) return;
-                const canvas = document.getElementById('gameCanvas');
-                if (!canvas) return;
-                const cw = canvas.clientWidth || window.innerWidth;
-                const ch = canvas.clientHeight || window.innerHeight;
+                const vp = getViewportSize();
+                const ins = safeAreaInsets();
+                let cw = vp.w - (ins.left + ins.right);
+                let ch = vp.h - (ins.top + ins.bottom);
                 const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
-                const aspectRatio = cw / ch;
                 
-                // Optimize edilmiş ölçülər: ekran ölçüsünə görə
-                let optimalRows = 11, optimalCols = 20;
-                if (portrait) {
-                    // Portrait: daha az sətir, daha çox sütun (en uzun)
-                    optimalRows = Math.max(9, Math.min(15, Math.round(ch / 50)));
-                    optimalCols = Math.max(15, Math.min(25, Math.round(cw / 40)));
-                } else {
-                    // Landscape: daha çox sətir, daha az sütun
-                    optimalRows = Math.max(11, Math.min(20, Math.round(ch / 45)));
-                    optimalCols = Math.max(18, Math.min(30, Math.round(cw / 35)));
-                }
+                // Target cell size based on device density
+                const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+                const targetCell = portrait ? (42 / dpr) : (36 / dpr);
+                const sidePadding = portrait ? 8 : 16; // px
+                const usableW = Math.max(120, cw - sidePadding * 2);
+                const usableH = Math.max(120, ch - sidePadding * 2);
+                let optimalCols = Math.floor(usableW / targetCell);
+                let optimalRows = Math.floor(usableH / targetCell);
+                // Clamp reasonable bounds
+                optimalCols = Math.max(15, Math.min(30, optimalCols));
+                optimalRows = Math.max(9, Math.min(20, optimalRows));
                 
                 if (window.game && (window.game.rows !== optimalRows || window.game.cols !== optimalCols)) {
                     window.game.rows = optimalRows;
@@ -1354,6 +1389,23 @@
                 setTimeout(() => {
                     if (autoResizeEnabled) calculateOptimalBoardSize();
                 }, 500);
+            }
+
+            // Hide HUD toggle
+            if (hideHudToggle) {
+                const hud = document.getElementById('hudBottom');
+                const transformRow = document.getElementById('boardTransform');
+                function applyHudVisibility(){ 
+                    if(!hud) return; 
+                    const hidden = !!hideHudToggle.checked; 
+                    if (hudColumn) hudColumn.style.display = hidden ? 'none' : '';
+                }
+                try { const saved = localStorage.getItem('td_hide_hud'); if(saved!==null){ hideHudToggle.checked = saved==='true'; } } catch(e) {}
+                applyHudVisibility();
+                hideHudToggle.addEventListener('change', function(e){
+                    try { localStorage.setItem('td_hide_hud', String(hideHudToggle.checked)); } catch(e) {}
+                    applyHudVisibility();
+                });
             }
 
             // Manual pan/resize with touch gestures
@@ -1458,7 +1510,7 @@
                             const container = document.querySelector('.game-area');
                             if (container) {
                                 const cRect = container.getBoundingClientRect();
-                                const kRect = canvas.getBoundingClientRect();
+                                const kRect = (document.getElementById('boardTransform')||boardContent||canvas).getBoundingClientRect();
                                 const maxX = Math.max(0, (kRect.width*state.currentZoom - cRect.width) / 2);
                                 const maxY = Math.max(0, (kRect.height*state.currentZoom - cRect.height) / 2);
                                 state.panX = Math.min(maxX, Math.max(-maxX, state.panX));
