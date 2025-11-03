@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mobil Tam Ekran Grid</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{
+    background:#000;color:#fff;font-family:Arial,sans-serif;
+    overflow:hidden;
+    padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0)
+            env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);
+  }
+  .canvas-container{position:fixed;inset:0;width:100vw;height:calc(var(--vh,1vh)*100);background:#000;overflow:hidden}
+  @supports(height:100dvh){.canvas-container{height:100dvh}}
+  #testCanvas{position:fixed;top:0;left:0;display:block}
+  .fullscreen-btn{
+    position:fixed;bottom:20px;right:20px;z-index:10;
+    background:#4a90e2;border:2px solid #4a90e2;color:#fff;
+    border-radius:999px;padding:12px 20px;font-weight:bold;cursor:pointer;
+  }
+  .fullscreen-btn.fullscreen-active{background:#ff8800;border-color:#ff8800}
+  .grid-size-selector{
+    position:fixed;bottom:20px;left:20px;z-index:10;
+    background:#2a2a2a;border:2px solid #4a90e2;border-radius:10px;
+    padding:15px;max-width:300px;
+  }
+  .grid-size-selector h3{
+    color:#4a90e2;font-size:14px;margin-bottom:10px;text-align:center;
+  }
+  .size-options{
+    display:flex;flex-wrap:wrap;gap:8px;justify-content:center;
+  }
+  .size-btn{
+    background:#4a90e2;border:2px solid #4a90e2;color:#fff;
+    border-radius:6px;padding:8px 12px;font-weight:bold;cursor:pointer;
+    font-size:12px;min-width:60px;
+  }
+  .size-btn:hover{background:#357abd}
+  .size-btn.active{background:#ff8800;border-color:#ff8800}
+</style>
+</head>
+<body>
+  <button class="fullscreen-btn" id="fullscreenBtn" onclick="toggleFullscreen()">
+    <span id="fullscreenIcon">⛶</span> <span id="fullscreenText">Tam Ekran</span>
+  </button>
+  <div class="grid-size-selector" id="sizeSelector">
+    <h3 id="sizeTitle">Ölçü Seç</h3>
+    <div class="size-options" id="sizeOptions"></div>
+  </div>
+  <div class="canvas-container">
+    <canvas id="testCanvas"></canvas>
+  </div>
+
+<script>
+let gridRows=9,gridCols=9,isFullscreen=false;
+let marginTop=2, marginSide=2, marginBottom=2; // başlanğıc marginlər
+let selectedSize=null; // Seçili ölçü
+
+// Hazır ölçüler
+const landscapeSizes = [
+  {rows:7, cols:17, label:"7×17"},
+  {rows:9, cols:22, label:"9×22"},
+  {rows:11, cols:27, label:"11×27"},
+  {rows:13, cols:32, label:"13×32"}
+];
+
+const portraitSizes = [
+  {rows:9, cols:9, label:"9×9"},
+  {rows:11, cols:11, label:"11×11"},
+  {rows:13, cols:13, label:"13×13"},
+  {rows:15, cols:15, label:"15×15"},
+  {rows:17, cols:17, label:"17×17"},
+  {rows:19, cols:19, label:"19×19"}
+];
+
+function setVH(){
+  const vh=(window.visualViewport?.height||window.innerHeight)*0.01;
+  document.documentElement.style.setProperty('--vh',`${vh}px`);
+}
+
+// rejimə görə grid ölçüləri
+function updateGridSize(){
+  const portrait=window.innerHeight>window.innerWidth;
+  if(selectedSize){
+    // Seçili ölçüyü kullan
+    gridRows=selectedSize.rows;
+    gridCols=selectedSize.cols;
+  }else{
+    // Ölçü seçilmemişse varsayılan
+    if(portrait){
+      gridRows=11; gridCols=11;
+    }else{
+      gridRows=9; gridCols=22;
+    }
+  }
+}
+
+// rejimə görə marginlər
+function updateMargins(){
+  const portrait=window.innerHeight>window.innerWidth;
+  if(portrait){
+    marginTop=2;   // dikeydə üstdən 2px
+    marginSide=2;  // dikeydə yanlardan 2px
+    marginBottom=250;  // dikeydə altdan 250px boşluq
+  }else{
+    marginTop=2;   // yatayda yuxarıdan 2px
+    marginSide=25;  // yanlarda daha çox boşluq (grid daha dar)
+    marginBottom=2;  // yatayda altdan 2px
+  }
+}
+
+function resizeCanvas(){
+  const c=document.getElementById('testCanvas');
+  const w=window.innerWidth,h=window.innerHeight;
+  c.style.width=w+"px"; c.style.height=h+"px";
+  c.width=w; c.height=h;
+}
+
+function drawCanvas(){
+  const c=document.getElementById('testCanvas');
+  const ctx=c.getContext('2d');
+  updateGridSize();
+  updateMargins();
+
+  const w=c.width,h=c.height;
+  const portrait = window.innerHeight > window.innerWidth;
+  const drawW=w-marginSide*2,drawH=h-marginTop-marginBottom;
+  
+  let cellSize, gridWidth, gridHeight, startX, startY;
+  
+  if(portrait){
+    // Dikey modda: Hücreleri kare yap
+    const cellWFromWidth = drawW / gridCols;
+    const cellHFromHeight = drawH / gridRows;
+    cellSize = Math.min(cellWFromWidth, cellHFromHeight);
+    gridWidth = cellSize * gridCols;
+    gridHeight = cellSize * gridRows;
+    startX = marginSide + (drawW - gridWidth) / 2;
+    startY = marginTop; // Yukarıdan başlat
+  }else{
+    // Yatay modda: Hücreleri kare yap
+    const cellWFromWidth = drawW / gridCols;
+    const cellHFromHeight = drawH / gridRows;
+    cellSize = Math.min(cellWFromWidth, cellHFromHeight); // Kare hücreler
+    
+    // Grid boyutları
+    gridWidth = cellSize * gridCols;
+    gridHeight = cellSize * gridRows;
+    
+    // Grid'i yanlardan 25px ile ortala
+    startX = marginSide + (drawW - gridWidth) / 2;
+    startY = marginTop + (drawH - gridHeight) / 2; // Dikeyde ortala
+  }
+
+  ctx.fillStyle="#1a1a1a";ctx.fillRect(0,0,w,h);
+  
+  // Hücreleri kare olarak çiz (dama tahtası deseni)
+  for(let r=0;r<gridRows;r++){
+    for(let col=0;col<gridCols;col++){
+      const x=startX+col*cellSize;
+      const y=startY+r*cellSize;
+      
+      // Normal hücreler: dama tahtası deseni
+      ctx.fillStyle=(r+col)%2?"rgba(26,26,26,0.8)":"rgba(74,144,226,0.15)";
+      
+      ctx.fillRect(x,y,cellSize,cellSize);
+      ctx.strokeStyle="#444";
+      ctx.strokeRect(x,y,cellSize,cellSize);
+    }
+  }
+
+  // Metni grid'in merkezine yaz
+  const centerX = startX + gridWidth / 2;
+  const centerY = startY + gridHeight / 2;
+  
+  ctx.fillStyle="#4a90e2";
+  ctx.font="bold 28px Arial";
+  ctx.textAlign="center";ctx.textBaseline="middle";
+  ctx.fillText("OYUN TAHTASI",centerX,centerY);
+  ctx.fillStyle="#ff8800";ctx.font="16px Arial";
+  ctx.fillText((portrait?"Dikey":"Yatay")+`: ${gridRows}×${gridCols}`,centerX,centerY+28);
+}
+
+function isMobile(){
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||window.innerWidth<=768;
+}
+
+// Ölçü seçimi UI'sini oluştur
+function createSizeSelector(){
+  const portrait=window.innerHeight>window.innerWidth;
+  const sizes = portrait ? portraitSizes : landscapeSizes;
+  const title = document.getElementById("sizeTitle");
+  const options = document.getElementById("sizeOptions");
+  
+  title.textContent = portrait ? "Dikey Ölçüler" : "Yatay Ölçüler";
+  options.innerHTML = "";
+  
+  sizes.forEach(size => {
+    const btn = document.createElement("button");
+    btn.className = "size-btn";
+    btn.textContent = size.label;
+    btn.onclick = () => selectSize(size);
+    if(selectedSize && selectedSize.rows === size.rows && selectedSize.cols === size.cols){
+      btn.classList.add("active");
+    }
+    options.appendChild(btn);
+  });
+}
+
+// Ölçü seçme fonksiyonu
+function selectSize(size){
+  selectedSize = size;
+  createSizeSelector(); // UI'yi güncelle
+  resizeCanvas();
+  drawCanvas();
+}
+
+function toggleFullscreen(){
+  const btn=document.getElementById("fullscreenBtn");
+  const text=document.getElementById("fullscreenText");
+  if(isMobile()){
+    document.body.classList.toggle("mobile-fullscreen");
+    document.documentElement.classList.toggle("mobile-fullscreen");
+    isFullscreen=!isFullscreen;
+    btn.classList.toggle("fullscreen-active",isFullscreen);
+    text.textContent=isFullscreen?"Çıkış":"Tam Ekran";
+    setTimeout(()=>{setVH();resizeCanvas();drawCanvas();},150);
+  }else{
+    if(!document.fullscreenElement)document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+}
+
+window.addEventListener("load",()=>{
+  setVH();
+  createSizeSelector();
+  resizeCanvas();
+  drawCanvas();
+});
+window.addEventListener("resize",()=>{
+  setVH();
+  createSizeSelector();
+  resizeCanvas();
+  drawCanvas();
+});
+window.addEventListener("orientationchange",()=>setTimeout(()=>{
+  setVH();
+  createSizeSelector();
+  resizeCanvas();
+  drawCanvas();
+},200));
+</script>
+</body>
+</html>

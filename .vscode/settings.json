@@ -1,3 +1,8 @@
 {
-    "liveServer.settings.port": 5501
+    "liveServer.settings.port": 5501,
+    "liveServer.settings.host": "0.0.0.0",
+    "liveServer.settings.root": "/",
+    "liveServer.settings.CustomBrowser": null,
+    "liveServer.settings.donotShowInfoMsg": false,
+    "liveServer.settings.donotVerifyTags": false
 }

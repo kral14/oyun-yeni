@@ -310,34 +310,114 @@ class TowerDefenseGame {
     
     updateGridDimensions() {
         // Responsive: faktiki canvas ölçüsündən hesabla
-        const cw = this.canvas.width;   // device piksel
-        const ch = this.canvas.height;  // device piksel
+        let cw = this.canvas.width;   // device piksel
+        let ch = this.canvas.height;  // device piksel
 
         // Canvas boyutlarının 0 olmadığından emin ol
         if (!cw || !ch) {
-            this.debugWarning('Canvas boyutları hələ hazır deyil, grid hesablaması təxirə salınır');
-            return;
+            // Canvas boyutları henüz hazır değilse, High DPI rendering'i ayarla
+            if (this.setupHighDPIRendering && this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0) {
+                this.setupHighDPIRendering();
+                // Tekrar kontrol et
+                cw = this.canvas.width;
+                ch = this.canvas.height;
+            }
+            
+            // Hala 0 ise, clientWidth/clientHeight kullan
+            if (!cw || !ch) {
+                if (this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0) {
+                    // setupHighDPIRendering'i çağırmayı dene (context'i doğru scale eder)
+                    if (this.setupHighDPIRendering) {
+                        this.setupHighDPIRendering();
+                        // Tekrar kontrol et
+                        cw = this.canvas.width;
+                        ch = this.canvas.height;
+                    }
+                    
+                    // Hala 0 ise, manuel olarak ayarla
+                    if (!cw || !ch) {
+                        const devicePixelRatio = window.devicePixelRatio || 1;
+                        cw = this.canvas.clientWidth * devicePixelRatio;
+                        ch = this.canvas.clientHeight * devicePixelRatio;
+                        // Canvas boyutlarını ayarla
+                        this.canvas.width = cw;
+                        this.canvas.height = ch;
+                        // Context'i reset et ve scale et (eğer setupHighDPIRendering çalışmadıysa)
+                        if (this.ctx && !this.devicePixelRatio) {
+                            this.ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+                            this.ctx.scale(devicePixelRatio, devicePixelRatio);
+                            this.devicePixelRatio = devicePixelRatio;
+                        }
+                    }
+                } else {
+                    // Hala hazır değilse, uyarı ver ve return
+                    this.debugWarning('Canvas boyutları hələ hazır deyil, grid hesablaması təxirə salınır');
+                    return;
+                }
+            }
         }
 
-        // Taxta ətrafında padding burax; portrait rejimində daha kiçik pad istifadə et (maksimum uyğunluq üçün)
-        // orientationOverride olsa belə, grid boyutları yenilənməlidir (yalnız rows/cols deyil, gridSize və offset-lər də)
-        // if (this.orientationOverride) return; // istifadəçi tərəfindən təyin edilmiş ölçü qalır - YALNIZ rows/cols üçün
-        const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
-        const padRatio = portrait ? 0.02 : 0.04;
-        const pad = Math.max(6, Math.round(Math.min(cw, ch) * padRatio));
-        const cellW = Math.floor((cw - pad * 2) / this.cols);
-        const cellH = Math.floor((ch - pad * 2) / this.rows);
-        this.gridSize = Math.max(10, Math.min(cellW, cellH));
-
-        // Grid offsetlərini padding ilə mərkəzləşdirmək üçün hesabla - grid həmişə mərkəzdədir
-        const boardW = this.gridSize * this.cols;
-        const boardH = this.gridSize * this.rows;
-        this.gridOffsetX = Math.round((cw - boardW) / 2);
-        this.gridOffsetY = Math.round((ch - boardH) / 2);
-
-        // Məntiqi grid layout sabit qalır
+        // Məntiqi grid layout sabit qalır (her zaman ayarla)
         this.gridCols = this.cols;
         this.gridRows = this.rows;
+        
+        // Canvas boyutları 0 ise, sadece grid boyutlarını ayarla ve return
+        if (!cw || !ch) {
+            // Grid boyutları ayarlandı, ancak canvas boyutları henüz hazır değil
+            // Bir sonraki frame'de tekrar denenecek
+            return;
+        }
+        
+        // Test dosyasındaki margin sistemini kullan (mobil için)
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 768;
+        const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+        
+        let marginTop, marginSide, marginBottom;
+        if (isMobile && portrait) {
+            // Dikey modda: üstten 2px, yanlardan 2px, alttan 250px
+            marginTop = 2;
+            marginSide = 2;
+            marginBottom = 250;
+        } else if (isMobile && !portrait) {
+            // Yatay modda: üstten/alttan 2px, yanlardan 25px
+            marginTop = 2;
+            marginSide = 25;
+            marginBottom = 2;
+        } else {
+            // Desktop: eski mantık
+            const padRatio = portrait ? 0.02 : 0.04;
+            marginSide = Math.max(6, Math.round(Math.min(cw, ch) * padRatio));
+            marginTop = marginSide;
+            marginBottom = marginSide;
+        }
+        
+        // Kullanılabilir alan
+        const drawW = cw - (marginSide * 2);
+        const drawH = ch - marginTop - marginBottom;
+        
+        // Hücreleri kare yap (test dosyasındaki gibi)
+        const cellWFromWidth = drawW / this.cols;
+        const cellHFromHeight = drawH / this.rows;
+        this.gridSize = Math.max(10, Math.min(cellWFromWidth, cellHFromHeight));
+
+        // Grid boyutları
+        const boardW = this.gridSize * this.cols;
+        const boardH = this.gridSize * this.rows;
+        
+        // Grid offset'leri (test dosyasındaki gibi)
+        if (isMobile && portrait) {
+            // Dikey modda: yatayda ortala, yukarıdan başlat
+            this.gridOffsetX = marginSide + (drawW - boardW) / 2;
+            this.gridOffsetY = marginTop;
+        } else if (isMobile && !portrait) {
+            // Yatay modda: yatayda ortala, dikeyde ortala
+            this.gridOffsetX = marginSide + (drawW - boardW) / 2;
+            this.gridOffsetY = marginTop + (drawH - boardH) / 2;
+        } else {
+            // Desktop: eski mantık (merkez)
+            this.gridOffsetX = Math.round((cw - boardW) / 2);
+            this.gridOffsetY = Math.round((ch - boardH) / 2);
+        }
         
         // Başlanğıc/məqsəd hücrələrinin mövcud olduğunu və cari hədlər daxilində olduğunu təmin et
         const midRow = Math.floor(this.gridRows / 2);
@@ -4581,8 +4661,26 @@ class TowerDefenseGame {
     }
     
     drawGrid() {
+        // Canvas ve grid boyutlarını kontrol et
+        if (!this.canvas.width || !this.canvas.height) {
+            // Canvas boyutları henüz hazır değilse, bir sonraki frame'de tekrar dene
+            return;
+        }
+        
+        // Grid boyutlarını kontrol et
+        if (!this.gridRows || !this.gridCols || !this.gridSize) {
+            // Grid boyutları henüz hazır değilse, güncelle
+            if (this.updateGridDimensions) {
+                this.updateGridDimensions();
+            }
+            // Hala hazır değilse, çizme
+            if (!this.gridRows || !this.gridCols || !this.gridSize) {
+                return;
+            }
+        }
+        
         // Background fill (full canvas)
-        this.ctx.fillStyle = '#000000';
+        this.ctx.fillStyle = '#1a1a1a'; // Test dosyasındaki gibi koyu gri
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         const boardW = this.gridSize * this.gridCols;
@@ -4590,31 +4688,55 @@ class TowerDefenseGame {
         const ox = this.gridOffsetX;
         const oy = this.gridOffsetY;
 
-        // Draw board background subtle
-        this.ctx.fillStyle = 'rgba(255,255,255,0.02)';
-        this.ctx.fillRect(ox, oy, boardW, boardH);
+        // Test dosyasındaki gibi: Her hücreyi kare olarak çiz (dama tahtası deseni)
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 768;
+        
+        if (isMobile) {
+            // Mobil için: test dosyasındaki gibi dama tahtası deseni (yol satırı yok)
+            for (let r = 0; r < this.gridRows; r++) {
+                for (let c = 0; c < this.gridCols; c++) {
+                    const x = ox + c * this.gridSize;
+                    const y = oy + r * this.gridSize;
+                    
+                    // Normal hücreler: dama tahtası deseni
+                    this.ctx.fillStyle = (r + c) % 2 === 0 
+                        ? 'rgba(74, 144, 226, 0.15)'  // Açık mavi
+                        : 'rgba(26, 26, 26, 0.8)';     // Koyu gri
+                    
+                    this.ctx.fillRect(x, y, this.gridSize, this.gridSize);
+                    this.ctx.strokeStyle = '#444';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.strokeRect(x, y, this.gridSize, this.gridSize);
+                }
+            }
+        } else {
+            // Desktop için: eski mantık
+            // Draw board background subtle
+            this.ctx.fillStyle = 'rgba(255,255,255,0.02)';
+            this.ctx.fillRect(ox, oy, boardW, boardH);
 
-        // major lines every 5 cells within board
-        const majorEvery = 5;
-        for (let c = 0; c <= this.gridCols; c++) {
-            const x = ox + c * this.gridSize;
-            const isMajor = (c % majorEvery) === 0;
-            this.ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)';
-            this.ctx.lineWidth = isMajor ? 1.2 : 1;
-            this.ctx.beginPath();
-            this.ctx.moveTo(x + 0.5, oy);
-            this.ctx.lineTo(x + 0.5, oy + boardH);
-            this.ctx.stroke();
-        }
-        for (let r = 0; r <= this.gridRows; r++) {
-            const y = oy + r * this.gridSize;
-            const isMajor = (r % majorEvery) === 0;
-            this.ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)';
-            this.ctx.lineWidth = isMajor ? 1.2 : 1;
-            this.ctx.beginPath();
-            this.ctx.moveTo(ox, y + 0.5);
-            this.ctx.lineTo(ox + boardW, y + 0.5);
-            this.ctx.stroke();
+            // major lines every 5 cells within board
+            const majorEvery = 5;
+            for (let c = 0; c <= this.gridCols; c++) {
+                const x = ox + c * this.gridSize;
+                const isMajor = (c % majorEvery) === 0;
+                this.ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)';
+                this.ctx.lineWidth = isMajor ? 1.2 : 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(x + 0.5, oy);
+                this.ctx.lineTo(x + 0.5, oy + boardH);
+                this.ctx.stroke();
+            }
+            for (let r = 0; r <= this.gridRows; r++) {
+                const y = oy + r * this.gridSize;
+                const isMajor = (r % majorEvery) === 0;
+                this.ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)';
+                this.ctx.lineWidth = isMajor ? 1.2 : 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(ox, y + 0.5);
+                this.ctx.lineTo(ox + boardW, y + 0.5);
+                this.ctx.stroke();
+            }
         }
 
         // Expansion reveal animation overlay (new cells fade-in)
@@ -8834,8 +8956,31 @@ class TowerDefenseGame {
             this.updateUI();
         }
         
-        // Clear canvas
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        // Canvas boyutlarını kontrol et ve gerekirse güncelle
+        if (!this.canvas.width || !this.canvas.height) {
+            // Canvas boyutları henüz hazır değilse, güncelle
+            if (this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0) {
+                if (this.setupHighDPIRendering) {
+                    this.setupHighDPIRendering();
+                }
+                if (this.updateGridDimensions) {
+                    this.updateGridDimensions();
+                }
+            }
+        }
+        
+        // Clear canvas (eğer boyutlar varsa)
+        if (this.canvas.width > 0 && this.canvas.height > 0) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        } else {
+            // Canvas boyutları hala 0 ise, bir sonraki frame'de tekrar dene
+            requestAnimationFrame(() => {
+                if (this && this.gameLoop) {
+                    this.gameLoop();
+                }
+            });
+            return;
+        }
         
         // Draw game elements - Kulelər yolun üstündə görünsün
         this.drawGrid();

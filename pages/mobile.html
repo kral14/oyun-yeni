@@ -28,7 +28,18 @@
             .game-container { height: 100dvh; }
         }
         .game-header { display:none; }
-        .game-area { padding:8px; overflow:hidden; display:grid; grid-template-columns: 1fr; gap:8px; max-width: 100vw; margin: 0; }
+        .game-area { 
+            padding:8px; 
+            overflow:hidden; 
+            display:flex; 
+            flex-direction: row;
+            align-items: stretch;
+            gap:8px; 
+            max-width: 100vw; 
+            margin: 0; 
+            height: 100%;
+            min-height: 0;
+        }
         /* Override desktop constraint */
         .game-area { max-width: none; }
         .tower-shop { order: 2; width: 100%; padding: 6px; gap: 6px; }
@@ -502,6 +513,13 @@
                 
                 <div class="tab-content" id="tab-board">
                     <h3>Taxta Nəzarəti</h3>
+                    
+                    <!-- Hazır ölçü seçici -->
+                    <div style="margin-bottom: 15px; padding: 12px; background: rgba(74,144,226,0.1); border: 1px solid rgba(74,144,226,0.3); border-radius: 8px;">
+                        <h4 style="margin: 0 0 10px; font-size: 13px; color: #4a90e2; text-align: center;" id="sizeTitle">Ölçü Seç</h4>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;" id="sizeOptions"></div>
+                    </div>
+                    
                     <div class="board-controls">
                         <label>Sətir <input type="number" id="boardRows" min="3" max="60" value="11"></label>
                         <label>Sütun <input type="number" id="boardCols" min="3" max="80" value="20"></label>
@@ -1168,6 +1186,101 @@
             window.addEventListener('orientationchange', function(){ setTimeout(setVh, 250); });
             // Nudge URL bar to hide on load (where supported)
             window.addEventListener('load', function(){ setTimeout(function(){ window.scrollTo(0, 1); }, 50); });
+            
+            // Canvas boyutlarını güncelle (mobil için)
+            function updateCanvasSize() {
+                if (window.game && window.game.canvas) {
+                    const canvas = window.game.canvas;
+                    // Canvas'ın parent container'ının boyutlarını kontrol et
+                    const boardContent = document.getElementById('boardContent');
+                    const playfield = document.getElementById('playfield');
+                    const gameArea = document.querySelector('.game-area');
+                    
+                    // Önce game-area'nın yüksekliğini kontrol et
+                    if (gameArea) {
+                        const gameAreaRect = gameArea.getBoundingClientRect();
+                        if (gameAreaRect.height === 0) {
+                            // game-area'nın yüksekliği yoksa, game-container'dan al
+                            const gameContainer = document.querySelector('.game-container');
+                            if (gameContainer) {
+                                const containerRect = gameContainer.getBoundingClientRect();
+                                if (containerRect.height > 0) {
+                                    gameArea.style.height = containerRect.height + 'px';
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (boardContent) {
+                        const rect = boardContent.getBoundingClientRect();
+                        // Eğer height 0 ise, parent container'dan al
+                        if (rect.height === 0 && gameArea) {
+                            const gameAreaRect = gameArea.getBoundingClientRect();
+                            if (gameAreaRect.height > 0) {
+                                boardContent.style.height = gameAreaRect.height + 'px';
+                                // Tekrar kontrol et
+                                const newRect = boardContent.getBoundingClientRect();
+                                if (newRect.width > 0 && newRect.height > 0) {
+                                    // Canvas'ı yeniden boyutlandır
+                                    if (window.game.setupHighDPIRendering) {
+                                        window.game.setupHighDPIRendering();
+                                    }
+                                    // Grid boyutlarını güncelle
+                                    if (window.game.updateGridDimensions) {
+                                        window.game.updateGridDimensions();
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                        
+                        if (rect.width > 0 && rect.height > 0) {
+                            // Canvas'ı yeniden boyutlandır
+                            if (window.game.setupHighDPIRendering) {
+                                window.game.setupHighDPIRendering();
+                            }
+                            // Grid boyutlarını güncelle
+                            if (window.game.updateGridDimensions) {
+                                window.game.updateGridDimensions();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Sayfa yüklendiğinde ve resize olduğunda canvas'ı güncelle
+            window.addEventListener('load', function() {
+                setTimeout(updateCanvasSize, 100);
+                // Oyun hazır olduğunda tekrar dene
+                setTimeout(updateCanvasSize, 500);
+                setTimeout(updateCanvasSize, 1000);
+            });
+            window.addEventListener('resize', function() {
+                setTimeout(updateCanvasSize, 100);
+            });
+            window.addEventListener('orientationchange', function() {
+                setTimeout(updateCanvasSize, 300);
+                setTimeout(updateCanvasSize, 600);
+            });
+            
+            // Oyun hazır olduğunda canvas'ı güncelle
+            if (window.game) {
+                // Oyun zaten yüklenmişse hemen güncelle
+                setTimeout(updateCanvasSize, 100);
+            } else {
+                // Oyun henüz yüklenmemişse, global game instance'ı bekle
+                const checkGame = setInterval(function() {
+                    if (window.game && window.game.canvas) {
+                        clearInterval(checkGame);
+                        setTimeout(updateCanvasSize, 100);
+                        setTimeout(updateCanvasSize, 500);
+                    }
+                }, 100);
+                // 10 saniye sonra timeout
+                setTimeout(function() {
+                    clearInterval(checkGame);
+                }, 10000);
+            }
         })();
         // Auto-switch back to desktop when no longer mobile
         (function(){
@@ -1244,6 +1357,98 @@
                     });
             }
         })();
+        // Hazır ölçüler
+        const landscapeSizes = [
+            {rows:7, cols:17, label:"7×17"},
+            {rows:9, cols:22, label:"9×22"},
+            {rows:11, cols:27, label:"11×27"},
+            {rows:13, cols:32, label:"13×32"}
+        ];
+        const portraitSizes = [
+            {rows:9, cols:9, label:"9×9"},
+            {rows:11, cols:11, label:"11×11"},
+            {rows:13, cols:13, label:"13×13"},
+            {rows:15, cols:15, label:"15×15"},
+            {rows:17, cols:17, label:"17×17"},
+            {rows:19, cols:19, label:"19×19"}
+        ];
+        let selectedSize = null;
+        
+        // Ölçü seçimi UI'sini oluştur
+        function createSizeSelector(){
+            const portrait = window.innerHeight > window.innerWidth;
+            const sizes = portrait ? portraitSizes : landscapeSizes;
+            const title = document.getElementById("sizeTitle");
+            const options = document.getElementById("sizeOptions");
+            
+            if (!title || !options) return;
+            
+            title.textContent = portrait ? "Dikey Ölçüler" : "Yatay Ölçüler";
+            options.innerHTML = "";
+            
+            sizes.forEach(size => {
+                const btn = document.createElement("button");
+                btn.style.cssText = "background:#4a90e2;border:2px solid #4a90e2;color:#fff;border-radius:6px;padding:6px 10px;font-weight:bold;cursor:pointer;font-size:11px;min-width:50px;";
+                btn.textContent = size.label;
+                btn.onclick = () => selectSize(size);
+                if(selectedSize && selectedSize.rows === size.rows && selectedSize.cols === size.cols){
+                    btn.style.background = "#ff8800";
+                    btn.style.borderColor = "#ff8800";
+                }
+                options.appendChild(btn);
+            });
+        }
+        
+        // Ölçü seçme fonksiyonu
+        function selectSize(size){
+            selectedSize = size;
+            const rowsInput = document.getElementById('boardRows');
+            const colsInput = document.getElementById('boardCols');
+            if(rowsInput && colsInput){
+                rowsInput.value = size.rows;
+                colsInput.value = size.cols;
+                
+                // Otomatik olarak tahtayı güncelle (ekranı yenilemeden)
+                const rows = Math.max(3, Math.min(60, parseInt(size.rows, 10)));
+                const cols = Math.max(3, Math.min(80, parseInt(size.cols, 10)));
+                
+                if (window.game && Number.isFinite(rows) && Number.isFinite(cols)) {
+                    window.game.rows = rows;
+                    window.game.cols = cols;
+                    window.game.orientationOverride = true;
+                    
+                    // Canvas'ı yeniden boyutlandır ve High DPI rendering'i güncelle
+                    const canvas = document.getElementById('gameCanvas');
+                    if (canvas && window.game.setupHighDPIRendering) {
+                        // High DPI rendering'i yeniden ayarla (içinde canvas clientWidth/clientHeight kullanıyor)
+                        window.game.setupHighDPIRendering();
+                    }
+                    
+                    // Grid boyutlarını güncelle
+                    window.game.updateGridDimensions();
+                    window.game.updateTowerPositions();
+                    window.game.recomputePath();
+                    
+                    // Canvas'ı hemen yeniden çiz
+                    if (window.game.gameLoop) {
+                        // requestAnimationFrame ile bir sonraki frame'de çiz
+                        requestAnimationFrame(() => {
+                            if (window.game && window.game.gameLoop) {
+                                window.game.gameLoop();
+                            }
+                        });
+                    }
+                }
+                
+                // LocalStorage'a kaydet
+                try { 
+                    localStorage.setItem('td_board_rows', String(rows)); 
+                    localStorage.setItem('td_board_cols', String(cols)); 
+                } catch(e) {}
+            }
+            createSizeSelector();
+        }
+
         // Tabs + Board controls
         (function(){
             const tabs = document.querySelectorAll('.tab-btn');
@@ -1255,6 +1460,10 @@
                 const id = btn.getAttribute('data-tab');
                 const pane = document.getElementById(id);
                 if (pane) pane.classList.add('active');
+                // Tab değiştiğinde ölçü seçiciyi güncelle
+                if(id === 'tab-board'){
+                    createSizeSelector();
+                }
             }));
 
             // Board controls: change rows/cols at runtime
@@ -1385,11 +1594,19 @@
                 }
                 window.addEventListener('resize', scheduleAutoResize);
                 window.addEventListener('orientationchange', scheduleAutoResize);
-                // Initial auto-resize
-                setTimeout(() => {
-                    if (autoResizeEnabled) calculateOptimalBoardSize();
-                }, 500);
-            }
+            // Initial auto-resize
+            setTimeout(() => {
+                if (autoResizeEnabled) calculateOptimalBoardSize();
+            }, 500);
+            
+            // Ölçü seçiciyi başlat
+            setTimeout(() => {
+                createSizeSelector();
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(createSizeSelector, 200);
+                });
+            }, 600);
+        }
 
             // Hide HUD toggle
             if (hideHudToggle) {
