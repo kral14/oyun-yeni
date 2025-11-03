@@ -304,8 +304,15 @@ class TowerDefenseGame {
         const cw = this.canvas.width;   // device piksel
         const ch = this.canvas.height;  // device piksel
 
+        // Canvas boyutlarının 0 olmadığından emin ol
+        if (!cw || !ch) {
+            this.debugWarning('Canvas boyutları hələ hazır deyil, grid hesablaması təxirə salınır');
+            return;
+        }
+
         // Taxta ətrafında padding burax; portrait rejimində daha kiçik pad istifadə et (maksimum uyğunluq üçün)
-        if (this.orientationOverride) return; // istifadəçi tərəfindən təyin edilmiş ölçü qalır
+        // orientationOverride olsa belə, grid boyutları yenilənməlidir (yalnız rows/cols deyil, gridSize və offset-lər də)
+        // if (this.orientationOverride) return; // istifadəçi tərəfindən təyin edilmiş ölçü qalır - YALNIZ rows/cols üçün
         const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
         const padRatio = portrait ? 0.02 : 0.04;
         const pad = Math.max(6, Math.round(Math.min(cw, ch) * padRatio));
@@ -6815,13 +6822,15 @@ class TowerDefenseGame {
         if (!shopCtx) {
             shopCtx = document.createElement('div');
             shopCtx.id = 'shopTowerContext';
-            shopCtx.style.cssText = 'display:none; position:fixed; z-index:100002; background:rgba(10,10,10,0.92); padding:10px; border:1px solid #00bcd4; border-radius:8px; flex-direction:column; gap:8px; min-width:250px;';
+            // Mobil üçün daha yüksək z-index - shop panel (z-index: 15) üstündə olmalıdır
+            // Kompakt layout: padding və gap azaldıldı, scroll edilə bilən
+            shopCtx.style.cssText = 'display:none; position:fixed; z-index:100003; background:rgba(10,10,10,0.92); padding:8px; border:1px solid #00bcd4; border-radius:8px; flex-direction:column; gap:6px; min-width:280px; max-width:calc(100vw - 40px); max-height:calc(100vh - 80px); overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; scrollbar-width:thin; scrollbar-color:rgba(74,144,226,0.5) rgba(0,0,0,0.3); touch-action:pan-y; overscroll-behavior:contain;';
             document.body.appendChild(shopCtx);
             
             // Başlıq (qüllə adı)
             const titleDiv = document.createElement('div');
             titleDiv.id = 'shopCtxTitle';
-            titleDiv.style.cssText = 'text-align:center; font-size:16px; font-weight:bold; color:#00d4ff; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.2); margin-bottom:8px;';
+            titleDiv.style.cssText = 'text-align:center; font-size:15px; font-weight:bold; color:#00d4ff; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.2); margin-bottom:6px; flex-shrink:0;';
             shopCtx.appendChild(titleDiv);
             
             // Tipə xüsusi yüksəltmələr (ayırıcı xəttdən yuxarı)
@@ -6830,64 +6839,76 @@ class TowerDefenseGame {
             typeSpecificSection.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
             shopCtx.appendChild(typeSpecificSection);
             
+            // Atəş Gücü və Atəş Sürəti üçün yan yana konteyner
+            const fireButtonsRow = document.createElement('div');
+            fireButtonsRow.id = 'shopCtxFireButtonsRow';
+            fireButtonsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap;';
+            typeSpecificSection.appendChild(fireButtonsRow);
+            
             // Atəş Gücü artırma düyməsi
             const btnDamage = document.createElement('button');
             btnDamage.id = 'shopCtxDamage';
             btnDamage.className = 'ctx-btn';
-            btnDamage.style.cssText = 'width:100%; padding:8px; background:rgba(74,144,226,0.3); border:1px solid #4a90e2; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
-            typeSpecificSection.appendChild(btnDamage);
+            btnDamage.style.cssText = 'flex:1 1 calc(50% - 3px); min-width:120px; padding:8px; background:rgba(74,144,226,0.3); border:1px solid #4a90e2; border-radius:4px; color:#fff; cursor:pointer; font-size:12px; line-height:1.3;';
+            fireButtonsRow.appendChild(btnDamage);
             
             // Atəş Sürəti artırma düyməsi
             const btnFireRate = document.createElement('button');
             btnFireRate.id = 'shopCtxFireRate';
             btnFireRate.className = 'ctx-btn';
-            btnFireRate.style.cssText = 'width:100%; padding:8px; background:rgba(74,144,226,0.3); border:1px solid #4a90e2; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
-            typeSpecificSection.appendChild(btnFireRate);
+            btnFireRate.style.cssText = 'flex:1 1 calc(50% - 3px); min-width:120px; padding:8px; background:rgba(74,144,226,0.3); border:1px solid #4a90e2; border-radius:4px; color:#fff; cursor:pointer; font-size:12px; line-height:1.3;';
+            fireButtonsRow.appendChild(btnFireRate);
             
-            // Can artırma düyməsi
-            const btnHealth = document.createElement('button');
-            btnHealth.id = 'shopCtxHealth';
-            btnHealth.className = 'ctx-btn';
-            btnHealth.style.cssText = 'width:100%; padding:8px; background:rgba(255,77,77,0.3); border:1px solid #ff4d4d; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
-            typeSpecificSection.appendChild(btnHealth);
-            
-            // Ayırıcı xətt
+            // Ayırıcı xətt (kompakt)
             const separator = document.createElement('div');
-            separator.style.cssText = 'width:100%; height:1px; background:rgba(255,255,255,0.2); margin:4px 0;';
+            separator.style.cssText = 'width:100%; height:1px; background:rgba(255,255,255,0.2); margin:3px 0; flex-shrink:0;';
             shopCtx.appendChild(separator);
             
             // Global yüksəltmələr (ayırıcı xəttdən aşağı)
             const globalSection = document.createElement('div');
             globalSection.id = 'shopCtxGlobal';
-            globalSection.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+            globalSection.style.cssText = 'display:flex; flex-direction:column; gap:6px; flex-shrink:0;';
             shopCtx.appendChild(globalSection);
+            
+            // Global butonlar - hamısı bir sətirdə (Can, Radius, Atəş Gücü, Atəş Sürəti)
+            const globalButtonsRow = document.createElement('div');
+            globalButtonsRow.id = 'shopCtxGlobalButtonsRow';
+            globalButtonsRow.style.cssText = 'display:flex; gap:4px; flex-wrap:wrap; margin-bottom:6px;';
+            globalSection.appendChild(globalButtonsRow);
+            
+            // Global Can artırma düyməsi
+            const btnGlobalHealth = document.createElement('button');
+            btnGlobalHealth.id = 'shopCtxGlobalHealth';
+            btnGlobalHealth.className = 'ctx-btn';
+            btnGlobalHealth.style.cssText = 'flex:1 1 calc(25% - 3px); min-width:80px; padding:6px 3px; background:rgba(255,77,77,0.3); border:1px solid #ff4d4d; border-radius:4px; color:#fff; cursor:pointer; font-size:10px; line-height:1.2;';
+            globalButtonsRow.appendChild(btnGlobalHealth);
             
             // Global Radius artırma düyməsi
             const btnGlobalRange = document.createElement('button');
             btnGlobalRange.id = 'shopCtxGlobalRange';
             btnGlobalRange.className = 'ctx-btn';
-            btnGlobalRange.style.cssText = 'width:100%; padding:8px; background:rgba(255,165,0,0.3); border:1px solid #ffa500; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
-            globalSection.appendChild(btnGlobalRange);
+            btnGlobalRange.style.cssText = 'flex:1 1 calc(25% - 3px); min-width:80px; padding:6px 3px; background:rgba(255,165,0,0.3); border:1px solid #ffa500; border-radius:4px; color:#fff; cursor:pointer; font-size:10px; line-height:1.2;';
+            globalButtonsRow.appendChild(btnGlobalRange);
             
             // Global Atəş Gücü artırma düyməsi
             const btnGlobalDamage = document.createElement('button');
             btnGlobalDamage.id = 'shopCtxGlobalDamage';
             btnGlobalDamage.className = 'ctx-btn';
-            btnGlobalDamage.style.cssText = 'width:100%; padding:8px; background:rgba(255,165,0,0.3); border:1px solid #ffa500; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
-            globalSection.appendChild(btnGlobalDamage);
+            btnGlobalDamage.style.cssText = 'flex:1 1 calc(25% - 3px); min-width:80px; padding:6px 3px; background:rgba(255,165,0,0.3); border:1px solid #ffa500; border-radius:4px; color:#fff; cursor:pointer; font-size:10px; line-height:1.2;';
+            globalButtonsRow.appendChild(btnGlobalDamage);
             
             // Global Atəş Sürəti artırma düyməsi
             const btnGlobalFireRate = document.createElement('button');
             btnGlobalFireRate.id = 'shopCtxGlobalFireRate';
             btnGlobalFireRate.className = 'ctx-btn';
-            btnGlobalFireRate.style.cssText = 'width:100%; padding:8px; background:rgba(255,165,0,0.3); border:1px solid #ffa500; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
-            globalSection.appendChild(btnGlobalFireRate);
+            btnGlobalFireRate.style.cssText = 'flex:1 1 calc(25% - 3px); min-width:80px; padding:6px 3px; background:rgba(255,165,0,0.3); border:1px solid #ffa500; border-radius:4px; color:#fff; cursor:pointer; font-size:10px; line-height:1.2;';
+            globalButtonsRow.appendChild(btnGlobalFireRate);
             
-            // Global Awaken düyməsi
+            // Global Awaken düyməsi (ikinci sıra - tam genişlik)
             const btnGlobalAwaken = document.createElement('button');
             btnGlobalAwaken.id = 'shopCtxGlobalAwaken';
             btnGlobalAwaken.className = 'ctx-btn';
-            btnGlobalAwaken.style.cssText = 'width:100%; padding:8px; background:rgba(138,43,226,0.3); border:1px solid #8a2be2; border-radius:4px; color:#fff; cursor:pointer; font-size:13px;';
+            btnGlobalAwaken.style.cssText = 'width:100%; padding:6px 4px; background:rgba(138,43,226,0.3); border:1px solid #8a2be2; border-radius:4px; color:#fff; cursor:pointer; font-size:11px; line-height:1.2;';
             globalSection.appendChild(btnGlobalAwaken);
             
             // Event listener-lər (tipə xüsusi)
@@ -6935,18 +6956,18 @@ class TowerDefenseGame {
             // Tooltip məlumatları bölməsini yarat (başlıqdan sonra, yüksəltmələrdən əvvəl)
             tooltipInfoDiv = document.createElement('div');
             tooltipInfoDiv.id = 'shopCtxTooltipInfo';
-            tooltipInfoDiv.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:8px; background:rgba(0,212,255,0.05); border:1px solid rgba(0,212,255,0.2); border-radius:6px; margin-bottom:8px;';
+            tooltipInfoDiv.style.cssText = 'display:flex; flex-direction:column; gap:4px; padding:6px; background:rgba(0,212,255,0.05); border:1px solid rgba(0,212,255,0.2); border-radius:6px; margin-bottom:6px; flex-shrink:0; font-size:11px;';
             
             // Statistika bölməsi
             const statsDiv = document.createElement('div');
             statsDiv.id = 'shopCtxStats';
-            statsDiv.style.cssText = 'display:flex; flex-direction:column; gap:4px; font-size:13px; color:#fff;';
+            statsDiv.style.cssText = 'display:flex; flex-direction:column; gap:3px; font-size:11px; color:#fff;';
             tooltipInfoDiv.appendChild(statsDiv);
             
             // Təsvir bölməsi
             const descDiv = document.createElement('div');
             descDiv.id = 'shopCtxDesc';
-            descDiv.style.cssText = 'font-size:11px; color:#d0d0d0; line-height:1.4; text-align:center; font-style:italic; padding-top:6px; border-top:1px solid rgba(255,255,255,0.1); margin-top:4px;';
+            descDiv.style.cssText = 'font-size:10px; color:#d0d0d0; line-height:1.3; text-align:center; font-style:italic; padding-top:4px; border-top:1px solid rgba(255,255,255,0.1); margin-top:3px;';
             tooltipInfoDiv.appendChild(descDiv);
             
             // Başlıqdan sonra, yüksəltmə bölməsindən əvvəl əlavə et
@@ -7002,20 +7023,15 @@ class TowerDefenseGame {
         // Düymələri yenilə və event listener-ləri yenilə
         const btnDamage = document.getElementById('shopCtxDamage');
         const btnFireRate = document.getElementById('shopCtxFireRate');
-        const btnHealth = document.getElementById('shopCtxHealth');
         
         // Köhnə event listener-ləri sil və yenilərini əlavə et
         const newBtnDamage = btnDamage ? btnDamage.cloneNode(true) : null;
         const newBtnFireRate = btnFireRate ? btnFireRate.cloneNode(true) : null;
-        const newBtnHealth = btnHealth ? btnHealth.cloneNode(true) : null;
         if (btnDamage && newBtnDamage) {
             btnDamage.parentNode.replaceChild(newBtnDamage, btnDamage);
         }
         if (btnFireRate && newBtnFireRate) {
             btnFireRate.parentNode.replaceChild(newBtnFireRate, btnFireRate);
-        }
-        if (btnHealth && newBtnHealth) {
-            btnHealth.parentNode.replaceChild(newBtnHealth, btnHealth);
         }
         
         if (newBtnDamage) {
@@ -7079,27 +7095,26 @@ class TowerDefenseGame {
                 clearInterval(holdInterval);
             });
         }
-        if (newBtnHealth) {
-            // Mağazada qüllə canını artırma - yalnız oyundakı qüllələrin canını artırır
-            const eligibleHealthTowers = this.towers.filter(t => t.type === towerType);
-            const totalHealthCost = eligibleHealthTowers.length * 50;
-            const healthCostText = totalHealthCost >= 1000 ? `${(totalHealthCost / 1000).toFixed(1)}min` : `${totalHealthCost}`;
-            newBtnHealth.textContent = `❤️ Can (${eligibleHealthTowers.length} qüllə) — $${healthCostText}`;
-            newBtnHealth.disabled = eligibleHealthTowers.length === 0 || this.gameState.money < 50;
-            
-            newBtnHealth.addEventListener('click', () => {
-                this.upgradeShopTowerHealth(towerType);
-            });
-        }
         
         // Global yüksəltmə düymələrini yenilə (yalnız seçilmiş qüllə tipinə aid)
         this.updateGlobalUpgradeButtons(towerType);
         
         // Global düymələr üçün event listener-ləri yenilə (towerType ilə)
+        const btnGlobalHealth = document.getElementById('shopCtxGlobalHealth');
         const btnGlobalRange = document.getElementById('shopCtxGlobalRange');
         const btnGlobalDamage = document.getElementById('shopCtxGlobalDamage');
         const btnGlobalFireRate = document.getElementById('shopCtxGlobalFireRate');
         const btnGlobalAwaken = document.getElementById('shopCtxGlobalAwaken');
+        
+        // Global Health butonu üçün event listener
+        if (btnGlobalHealth) {
+            const newBtnHealth = btnGlobalHealth.cloneNode(true);
+            btnGlobalHealth.parentNode.replaceChild(newBtnHealth, btnGlobalHealth);
+            
+            newBtnHealth.addEventListener('click', () => {
+                this.upgradeShopTowerHealth(towerType);
+            });
+        }
         
         // Köhnə listener-ləri sil və yenilərini əlavə et
         if (btnGlobalRange) {
@@ -7238,9 +7253,10 @@ class TowerDefenseGame {
         shopCtx.style.left = `${finalX}px`;
         shopCtx.style.top = `${finalY}px`;
         shopCtx.style.visibility = 'visible';
-        shopCtx.style.zIndex = '100002'; /* Ensure it's above shop panel and tooltips */
+        // Mobil üçün daha yüksək z-index - shop panel (z-index: 15) üstündə olmalıdır
+        shopCtx.style.zIndex = '100003'; /* Ensure it's above shop panel (15) and tooltips */
         
-        // Mənü xaricində klik edildikdə bağla
+        // Mənü xaricində klik edildikdə bağla (mouse və touch event-lər üçün)
         // İlk tıklamayı ignore et (menüyü açan tıklama)
         let isFirstClick = true;
         const closeMenu = (e) => {
@@ -7255,23 +7271,35 @@ class TowerDefenseGame {
             if (!shopCtx.contains(e.target) && !optionElement.contains(e.target) && e.target !== optionElement) {
                 shopCtx.style.display = 'none';
                 document.removeEventListener('click', closeMenu);
+                document.removeEventListener('touchend', closeMenu);
             }
         };
         
-        // Bir sonrakı click event-də bağla (sol tıkta context menü açıldığında, aynı tıklamayı ignore etmek için gecikme)
+        // Bir sonrakı click/touch event-də bağla (sol tıkta context menü açıldığında, aynı tıklamayı ignore etmek için gecikme)
         setTimeout(() => {
             document.addEventListener('click', closeMenu, true); // capture phase'de dinle
+            document.addEventListener('touchend', closeMenu, true); // Mobil üçün touch event
         }, 100);
     }
     
     // Global yüksəltmə düymələrini yenilə (total pul dəyərləri ilə) - yalnız seçilmiş qüllə tipinə aid
     updateGlobalUpgradeButtons(towerType) {
+        const btnGlobalHealth = document.getElementById('shopCtxGlobalHealth');
         const btnGlobalRange = document.getElementById('shopCtxGlobalRange');
         const btnGlobalDamage = document.getElementById('shopCtxGlobalDamage');
         const btnGlobalFireRate = document.getElementById('shopCtxGlobalFireRate');
         const btnGlobalAwaken = document.getElementById('shopCtxGlobalAwaken');
         
         if (!btnGlobalRange || !btnGlobalDamage || !btnGlobalFireRate || !btnGlobalAwaken) return;
+        
+        // Global Can üçün - yalnız seçilmiş tip
+        if (btnGlobalHealth) {
+            const eligibleHealthTowers = this.towers.filter(t => t.type === towerType);
+            const totalHealthCost = eligibleHealthTowers.length * 50;
+            const healthCostText = totalHealthCost >= 1000 ? `${(totalHealthCost / 1000).toFixed(1)}min` : `${totalHealthCost}`;
+            btnGlobalHealth.textContent = `❤️ Can (${eligibleHealthTowers.length} qüllə) — $${healthCostText}`;
+            btnGlobalHealth.disabled = eligibleHealthTowers.length === 0 || this.gameState.money < 50;
+        }
         
         // Bütün qüllələrin sayını və total pul dəyərini hesabla - yalnız seçilmiş qüllə tipinə aid
         const costPerUpgrade = 50;
@@ -8351,6 +8379,12 @@ class TowerDefenseGame {
             this.cols = savedCols;
         }
         
+        // Canvas boyutlarının hazır olmasını təmin et
+        // setupHighDPIRendering() çağrılmış olmalıdır
+        if (this.canvas && (!this.canvas.width || !this.canvas.height)) {
+            this.setupHighDPIRendering();
+        }
+        
         // Grid ölçüsü dəyişdikdə, grid parametrlərini yenilə
         this.updateGridDimensions();
         
@@ -8385,29 +8419,8 @@ class TowerDefenseGame {
         this.initCellIds();
         
         // Qüllələrin pixel koordinatlarını və cell ID-lərini yenidən hesabla (grid ölçüsü dəyişdikdən sonra)
-        this.towers = this.towers.map(t => {
-            // Qüllənin col/row mövqesinin yeni grid daxilində olub olmadığını yoxla
-            const validCol = Math.max(0, Math.min(this.gridCols - 1, t.col));
-            const validRow = Math.max(0, Math.min(this.gridRows - 1, t.row));
-            
-            // Pixel koordinatlarını hesabla (yeni grid ölçüsü ilə)
-            const gridX = this.gridOffsetX + validCol * this.gridSize + this.gridSize / 2;
-            const gridY = this.gridOffsetY + validRow * this.gridSize + this.gridSize / 2;
-            
-            // Cell ID-ni al
-            const cellId = (this.cellIdGrid[validRow] && this.cellIdGrid[validRow][validCol]) 
-                ? this.cellIdGrid[validRow][validCol] 
-                : null;
-            
-            return {
-                ...t,
-                col: validCol,
-                row: validRow,
-                cellId: cellId,
-                x: gridX,
-                y: gridY
-            };
-        });
+        // updateTowerPositions() funksiyasını istifadə et - daha təhlükəsiz
+        this.updateTowerPositions();
         
         // Statistikalar
         if (state.enemiesKilledThisGame !== undefined) {

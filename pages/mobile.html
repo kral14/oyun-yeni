@@ -7,7 +7,8 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Tower Defense — Mobile</title>
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=1">
+    <link rel="stylesheet" href="assets/components/profile/profile.css?v=1">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="assets/manifest.webmanifest">
     <meta name="theme-color" content="#0a84ff">
@@ -106,39 +107,304 @@
         .modal-open, .modal-open body { overflow: hidden !important; }
         .modal-open body { touch-action: none !important; }
         #shopBackdrop {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.45);
-            z-index: 14; opacity: 0; pointer-events: none; transition: opacity .2s ease;
+            position: fixed !important; 
+            inset: 0 !important; 
+            background: rgba(0,0,0,0.6) !important;
+            z-index: 9998 !important; /* Menünün altında, digər elementlərin üstündə */
+            opacity: 0 !important; 
+            pointer-events: none !important; 
+            transition: opacity .3s ease !important;
         }
-        #shopBackdrop.show { opacity: 1; pointer-events: auto; }
+        #shopBackdrop.show { 
+            opacity: 1 !important; 
+            pointer-events: auto !important; 
+        }
         /* Base fixed panel */
         .tower-shop.shop-panel {
-            position: fixed; z-index: 15; background: rgba(0,0,0,0.92);
-            border: 2px solid #4a90e2; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: flex; flex-direction: column; gap: 8px; padding: 10px;
-            transition: transform .25s ease;
-            /* Internal scrolling areas */
+            position: fixed !important; 
+            z-index: 9999 !important; /* Çox yüksək z-index - canvas və digər elementlər üstündə */
+            background: rgba(0,0,0,0.95) !important;
+            border: 2px solid #4a90e2 !important; 
+            border-radius: 12px !important; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+            display: none !important; /* Başlanğıcda tam gizli - JavaScript açana qədər */
+            flex-direction: column !important; 
+            gap: 8px !important; 
+            padding: 10px !important;
+            transition: transform .3s ease, opacity .3s ease !important;
+            overflow-y: auto !important; 
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch !important;
+            touch-action: pan-y !important;
+            overscroll-behavior: contain !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        .tower-shop.shop-panel.open {
+            display: flex !important; /* Açıq olduqda görün */
+            pointer-events: auto !important;
         }
         .tabs { display: flex; gap: 6px; }
         .tab-btn { flex:1; padding:8px; border-radius:8px; background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cfe6ff; }
         .tab-btn.active { background: rgba(74,144,226,0.25); border-color:#4a90e2; color:#fff; }
         .tab-content { display:none; }
         .tab-content.active { display:block; }
+        /* Context menu button styling for mobile */
+        .ctx-btn {
+            min-width: 70px;
+            flex: 1 1 auto;
+            padding: 5px 6px;
+            font-size: 11px;
+            line-height: 1.3;
+            background: linear-gradient(135deg, #1a1f25, #0f1419);
+            color: #e6f8ff;
+            border: 1px solid #00bcd4;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .ctx-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #2a3f55, #1f2f40);
+            border-color: #4dd0e1;
+            transform: translateY(-1px);
+        }
+        .ctx-btn:disabled { opacity: .45; cursor: not-allowed; }
+        .ctx-btn:active { transform: scale(0.98); }
+        
+        /* Mobil üçün shop context menu stil - kompakt və scroll edilə bilən */
+        #shopTowerContext {
+            max-width: calc(100vw - 40px) !important;
+            max-height: calc(100vh - 80px) !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch !important;
+            touch-action: pan-y !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: rgba(74, 144, 226, 0.5) rgba(0, 0, 0, 0.3) !important;
+            overscroll-behavior: contain !important;
+            overscroll-behavior-y: contain !important;
+            padding: 8px !important;
+            gap: 6px !important;
+            /* Touch scrolling üçün kritik */
+            will-change: scroll-position !important;
+            transform: translateZ(0) !important;
+            -webkit-transform: translateZ(0) !important;
+        }
+        /* Webkit scrollbar styling */
+        #shopTowerContext::-webkit-scrollbar {
+            width: 6px !important;
+        }
+        #shopTowerContext::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3) !important;
+            border-radius: 3px !important;
+        }
+        #shopTowerContext::-webkit-scrollbar-thumb {
+            background: rgba(74, 144, 226, 0.5) !important;
+            border-radius: 3px !important;
+        }
+        #shopTowerContext::-webkit-scrollbar-thumb:hover {
+            background: rgba(74, 144, 226, 0.7) !important;
+        }
+        #shopTowerContext .ctx-btn {
+            min-height: 40px !important; /* Touch-friendly minimum height */
+            padding: 8px 6px !important;
+            font-size: 11px !important;
+            margin-bottom: 4px !important;
+            line-height: 1.3 !important;
+            word-wrap: break-word !important;
+            white-space: normal !important;
+            /* Touch event'leri buton içində çalışsın */
+            touch-action: manipulation !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+        #shopTowerContext #shopCtxTitle {
+            font-size: 14px !important;
+            padding: 6px 0 !important;
+            margin-bottom: 6px !important;
+            flex-shrink: 0 !important;
+        }
+        #shopTowerContext #shopCtxTooltipInfo {
+            max-height: 180px !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding: 6px !important;
+            margin-bottom: 6px !important;
+            font-size: 11px !important;
+        }
+        /* Atəş Gücü və Atəş Sürəti yan yana */
+        #shopTowerContext #shopCtxFireButtonsRow {
+            display: flex !important;
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+            margin-bottom: 6px !important;
+        }
+        #shopTowerContext #shopCtxFireButtonsRow .ctx-btn {
+            flex: 1 1 calc(50% - 3px) !important;
+            min-width: 120px !important;
+        }
+        #shopTowerContext #shopCtxTypeSpecific,
+        #shopTowerContext #shopCtxGlobal {
+            gap: 6px !important;
+            flex-shrink: 0 !important;
+        }
+        /* Global butonlar - hamısı bir sətirdə (Can, Radius, Atəş Gücü, Atəş Sürəti) */
+        #shopTowerContext #shopCtxGlobalButtonsRow {
+            display: flex !important;
+            gap: 4px !important;
+            flex-wrap: wrap !important;
+            margin-bottom: 6px !important;
+        }
+        #shopTowerContext #shopCtxGlobalButtonsRow .ctx-btn {
+            flex: 1 1 calc(25% - 3px) !important;
+            min-width: 80px !important;
+            padding: 6px 3px !important;
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+        }
+        /* Kiçik ekranlar üçün: Global butonlar 2x2 grid */
+        @media (max-width: 480px) {
+            #shopTowerContext #shopCtxGlobalButtonsRow .ctx-btn {
+                flex: 1 1 calc(50% - 2px) !important;
+                min-width: 100px !important;
+            }
+        }
+        /* Çox kiçik ekranlar üçün: Global butonlar alt alta */
+        @media (max-width: 320px) {
+            #shopTowerContext #shopCtxGlobalButtonsRow {
+                flex-direction: column !important;
+            }
+            #shopTowerContext #shopCtxGlobalButtonsRow .ctx-btn {
+                width: 100% !important;
+                min-width: auto !important;
+            }
+        }
+        /* Ayırıcı xətt daha kompakt */
+        #shopTowerContext > div[style*="height:1px"] {
+            margin: 3px 0 !important;
+        }
+        /* Mobil üçün context menu z-index - shop panel üstündə */
+        #shopTowerContext {
+            z-index: 100003 !important; /* Shop panel z-index: 15, bu daha yüksək */
+        }
+        /* Kiçik ekranlar üçün: Atəş Gücü və Atəş Sürəti alt alta */
+        @media (max-width: 320px) {
+            #shopTowerContext #shopCtxFireButtonsRow {
+                flex-direction: column !important;
+            }
+            #shopTowerContext #shopCtxFireButtonsRow .ctx-btn {
+                width: 100% !important;
+                min-width: auto !important;
+            }
+        }
         .board-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .board-controls input { width:80px; }
         /* Pan overlay to intercept input in pan mode */
         #panLayer { position: absolute; inset: 0; z-index: 9; display: none; }
         #panLayer.active { display: block; }
         .tower-shop.shop-panel .tower-options { flex: 0 0 auto; }
-        .tower-shop.shop-panel .game-controls { flex: 1 1 auto; overflow: auto; }
-        /* Landscape: slide from right */
-        @media (orientation: landscape) {
-            .tower-shop.shop-panel { top: 8px; bottom: 8px; right: 8px; width: min(340px, 86vw); transform: translateX(110%); }
-            .tower-shop.shop-panel.open { transform: translateX(0); }
+        /* Scroll edilə bilən game controls - touch scrolling aktiv */
+        .tower-shop.shop-panel .game-controls { 
+            flex: 1 1 auto; 
+            overflow-y: auto; 
+            overflow-x: hidden; 
+            -webkit-overflow-scrolling: touch; /* iOS için smooth scrolling */
+            scrollbar-width: thin; 
+            scrollbar-color: rgba(74, 144, 226, 0.5) rgba(0, 0, 0, 0.3);
+            touch-action: pan-y; /* Yalnız dikey kaydırma izni */
+            overscroll-behavior: contain; /* Bounce efekti sınırlandır */
+            max-height: 100%; /* Scroll için maksimum yükseklik */
         }
-        /* Portrait: bottom sheet */
+        .tower-shop.shop-panel .game-controls::-webkit-scrollbar { width: 6px; }
+        .tower-shop.shop-panel .game-controls::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); border-radius: 3px; }
+        .tower-shop.shop-panel .game-controls::-webkit-scrollbar-thumb { background: rgba(74, 144, 226, 0.5); border-radius: 3px; }
+        .tower-shop.shop-panel .game-controls::-webkit-scrollbar-thumb:hover { background: rgba(74, 144, 226, 0.7); }
+        /* Panel özü də scroll edilə bilər */
+        .tower-shop.shop-panel {
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-y;
+        }
+        /* Responsive düzen: kiçik ekranlarda elementlər alt alta */
+        @media (max-width: 360px) {
+            .game-controls > div[style*="display: flex"] {
+                flex-direction: column !important;
+            }
+            .game-controls > div[style*="display: flex"] > button,
+            .game-controls > div[style*="display: flex"] > .auto-start-container {
+                width: 100% !important;
+                margin-bottom: 8px !important;
+            }
+            .speed-controls {
+                flex-direction: column !important;
+                gap: 8px !important;
+            }
+            .speed-controls label {
+                margin-right: 0 !important;
+            }
+            .speed-controls button {
+                width: 100% !important;
+            }
+        }
+        /* Landscape: slide from right - Landscape modu üçün xüsusi dizayn */
+        @media (orientation: landscape) {
+            .tower-shop.shop-panel { 
+                top: 8px !important; 
+                bottom: 8px !important; 
+                right: 8px !important; 
+                left: auto !important;
+                width: min(420px, 95vw) !important; /* Landscape'da daha geniş */
+                height: auto !important;
+                max-height: calc(100vh - 16px) !important;
+                min-height: 450px !important;
+                /* transform və opacity JavaScript ilə idarə olunur - CSS-də default dəyər yox */
+                transition: transform .3s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity .3s ease !important;
+                pointer-events: none !important;
+                display: none !important; /* Başlanğıcda tam gizli */
+                z-index: 9999 !important; /* Canvas üstündə */
+                box-shadow: -10px 0 40px rgba(0,0,0,0.9) !important; /* Landscape'da soldan gölgə */
+            }
+            .tower-shop.shop-panel.open { 
+                /* transform və opacity JavaScript ilə idarə olunur */
+                pointer-events: auto !important;
+                display: flex !important; /* Açıq olduqda görün */
+            }
+        }
+        /* Portrait: bottom sheet - Portrait modu üçün xüsusi dizayn */
         @media (orientation: portrait) {
-            .tower-shop.shop-panel { left: 8px; right: 8px; bottom: 8px; height: 56vh; transform: translateY(110%); }
-            .tower-shop.shop-panel.open { transform: translateY(0); }
+            .tower-shop.shop-panel { 
+                left: 4px !important; 
+                right: 4px !important; 
+                bottom: 4px !important; 
+                top: auto !important;
+                height: 65vh !important; /* Portrait'da daha yüksək */
+                width: calc(100vw - 8px) !important; /* Tam genişlik */
+                max-width: calc(100vw - 8px) !important;
+                max-height: calc(100vh - 8px) !important;
+                min-height: 350px !important;
+                /* transform və opacity JavaScript ilə idarə olunur - CSS-də default dəyər yox */
+                transition: transform .35s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity .35s ease !important;
+                pointer-events: none !important;
+                display: none !important; /* Başlanğıcda tam gizli */
+                z-index: 9999 !important; /* Canvas üstündə */
+                will-change: transform, opacity !important;
+                backface-visibility: hidden !important;
+                -webkit-backface-visibility: hidden !important;
+                box-shadow: 0 -10px 40px rgba(0,0,0,0.9) !important; /* Portrait'da üstdən gölgə */
+            }
+            .tower-shop.shop-panel.open { 
+                /* transform və opacity JavaScript ilə idarə olunur */
+                pointer-events: auto !important;
+                display: flex !important; /* Açıq olduqda görün */
+            }
+        }
+        /* Canvas responsive sizing */
+        #gameCanvas {
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
         }
     </style>
 </head>
@@ -147,21 +413,77 @@
         <div class="game-header"></div>
 
         <div class="game-area">
-            <canvas id="gameCanvas" width="960" height="540"></canvas>
+            <canvas id="gameCanvas"></canvas>
             <div id="panLayer"></div>
 
             <!-- Backdrop for panel -->
             <div id="shopBackdrop"></div>
 
             <!-- Slide-out Tower Shop panel with tabs -->
-            <div class="tower-shop shop-panel" id="mobileShop">
+            <div class="tower-shop shop-panel" id="mobileShop" style="display: none !important; position: fixed !important; z-index: 9999 !important;">
                 <div class="tabs">
-                    <button class="tab-btn active" data-tab="tab-board">Taxta</button>
+                    <button class="tab-btn active" data-tab="tab-game">Oyun</button>
+                    <button class="tab-btn" data-tab="tab-board">Taxta</button>
                     <button class="tab-btn" data-tab="tab-towers">Qüllələr</button>
-                    <button class="tab-btn" data-tab="tab-game">Oyun</button>
+                    <button class="tab-btn" data-tab="tab-special">Xüsusi</button>
                 </div>
 
-                <div class="tab-content active" id="tab-board">
+                <div class="tab-content active" id="tab-game">
+                    <h3>Oyun Nəzarəti</h3>
+                    <div class="game-controls">
+                        <!-- Birinci sıra: Dalğanı Başlat və Avto Başlat yan yana -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                            <button id="startWave" style="flex: 1; padding: 12px;">Dalğanı Başlat</button>
+                            <div class="auto-start-container" style="flex: 1; display: flex; align-items: center; gap: 8px; padding: 12px; background: rgba(255, 255, 255, 0.1); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); justify-content: center;">
+                                <input type="checkbox" id="autoStart" style="width: 16px; height: 16px; accent-color: #4a90e2;" />
+                                <label for="autoStart" style="color: #fff; font-size: 13px; cursor: pointer; user-select: none; margin: 0;">Avto Başlat</label>
+                            </div>
+                        </div>
+                        
+                        <!-- İkinci sıra: Fasilə və Oyunu Qeyd Et yan yana -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                            <button id="pauseGame" style="flex: 1; padding: 12px; background: linear-gradient(45deg, #ff9800, #f57c00);">⏸️ Fasilə</button>
+                            <button id="resumeGame" style="flex: 1; padding: 12px; background: linear-gradient(45deg, #4CAF50, #45a049); display: none;">▶️ Davam</button>
+                            <button id="saveGameState" style="flex: 1; padding: 12px; background: linear-gradient(45deg, #4CAF50, #45a049);">💾 Oyunu Qeyd Et</button>
+                        </div>
+                        
+                        <!-- Avtomatik Can Yeniləmə Bölməsi -->
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <button id="globalAutoHealToggle" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4a90e2, #357abd);">🔄 Avto Can Yeniləmə</button>
+                                
+                                <!-- Qüllə Seçim Paneli (gizli) -->
+                                <div id="globalAutoHealPanel" style="display: none; flex-direction: column; gap: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; max-height: 300px; overflow-y: auto;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                        <input type="number" id="globalAutoHealThreshold" min="1" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
+                                        <label style="color: #fff; font-size: 12px;">Can Dəyəri (1-100)</label>
+                                    </div>
+                                    <div id="globalAutoHealTowersList" style="display: flex; flex-direction: column; gap: 6px;">
+                                        <!-- Qüllələr buraya dinamik olaraq əlavə olunacaq -->
+                                    </div>
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <button id="globalAutoHealSelectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Hamısını Seç</button>
+                                        <button id="globalAutoHealDeselectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Seçimi Ləğv Et</button>
+                                    </div>
+                                    <button id="globalAutoHealConfirm" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4CAF50, #45a049);">✓ Təsdiqlə və Aktiv Et</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Sürət kontrolləri -->
+                        <div class="speed-controls" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; margin-top: 10px;">
+                            <label style="color: #fff; font-size: 13px; margin-right: 5px;">Sürət:</label>
+                            <button id="speed1" class="speed-btn" style="flex: 1; padding: 8px;">1x</button>
+                            <button id="speed2" class="speed-btn" style="flex: 1; padding: 8px;">2x</button>
+                            <button id="speed3" class="speed-btn" style="flex: 1; padding: 8px;">3x</button>
+                        </div>
+                        
+                        <!-- Yenidən Başlat - ən aşağıda -->
+                        <button id="restartGame" style="width: 100%; padding: 12px; margin-top: 15px; background: linear-gradient(45deg, #dc3545, #c82333); color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease; font-size: 14px;">🔄 Yenidən Başlat</button>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="tab-board">
                     <h3>Taxta Nəzarəti</h3>
                     <div class="board-controls">
                         <label>Sətir <input type="number" id="boardRows" min="3" max="60" value="11"></label>
@@ -184,48 +506,159 @@
                 <div class="tab-content" id="tab-towers">
                     <h3>Qüllə Mağazası</h3>
                     <div class="tower-options">
-                        <div class="tower-option" data-tower="basic">
+                        <div class="tower-option" data-tower="basic" data-damage="20" data-firerate="1000" data-cost="$50">
                             <div class="tower-icon basic-tower"></div>
                             <div class="tower-info">
                                 <div class="tower-name">Sadə Qüllə</div>
                                 <div class="tower-cost">$50</div>
                             </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Sadə Qüllə</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 20</div>
+                                    <div>🔥 Atəş sürəti: 1.0s</div>
+                                    <div>💰 Qiymət: $50</div>
+                                </div>
+                                <div class="tooltip-desc">Balanslı zərər və atəş sürəti ilə orta səviyyəli qüllə</div>
+                            </div>
                         </div>
-                        <div class="tower-option" data-tower="rapid">
+                        <div class="tower-option" data-tower="rapid" data-damage="10" data-firerate="300" data-cost="$100">
                             <div class="tower-icon rapid-tower"></div>
                             <div class="tower-info">
                                 <div class="tower-name">Sürətli Qüllə</div>
                                 <div class="tower-cost">$100</div>
                             </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Sürətli Qüllə</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 10</div>
+                                    <div>🔥 Atəş sürəti: 0.3s</div>
+                                    <div>💰 Qiymət: $100</div>
+                                </div>
+                                <div class="tooltip-desc">Çox sürətli atəş açır, az zərər verir - çox sayda düşmən üçün ideal</div>
+                            </div>
                         </div>
-                        <div class="tower-option" data-tower="heavy">
+                        <div class="tower-option" data-tower="heavy" data-damage="50" data-firerate="2000" data-cost="$200">
                             <div class="tower-icon heavy-tower"></div>
                             <div class="tower-info">
                                 <div class="tower-name">Ağır Qüllə</div>
                                 <div class="tower-cost">$200</div>
                             </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Ağır Qüllə</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 50</div>
+                                    <div>🔥 Atəş sürəti: 2.0s</div>
+                                    <div>💰 Qiymət: $200</div>
+                                </div>
+                                <div class="tooltip-desc">Çox güclü zərər verir, lakin yavaş atəş açır - güclü düşmənlər üçün</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="ice" data-star-cost="1" data-damage="15" data-firerate="800" data-cost="⭐1">
+                            <div class="tower-icon ice-tower"></div>
+                            <div class="tower-star-cost">⭐1</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Buz Qülləsi</div>
+                                <div class="tower-cost">⭐1</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Buz Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 15</div>
+                                    <div>🔥 Atəş sürəti: 0.8s</div>
+                                    <div>💰 Qiymət: ⭐1</div>
+                                </div>
+                                <div class="tooltip-desc">Buz mərmisi düşmənləri dondurur və yavaşladır</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="flame" data-star-cost="2" data-damage="25" data-firerate="1000" data-cost="⭐2">
+                            <div class="tower-icon flame-tower"></div>
+                            <div class="tower-star-cost">⭐2</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Alov Qülləsi</div>
+                                <div class="tower-cost">⭐2</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Alov Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 25</div>
+                                    <div>🔥 Atəş sürəti: 1.0s</div>
+                                    <div>💰 Qiymət: ⭐2</div>
+                                </div>
+                                <div class="tooltip-desc">Alov mərmisi düşmənləri yandırır - zamanla zərər verir</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="laser" data-star-cost="3" data-damage="30" data-firerate="500" data-cost="⭐3">
+                            <div class="tower-icon laser-tower"></div>
+                            <div class="tower-star-cost">⭐3</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Lazer Qülləsi</div>
+                                <div class="tower-cost">⭐3</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Lazer Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 30</div>
+                                    <div>🔥 Atəş sürəti: 0.5s</div>
+                                    <div>💰 Qiymət: ⭐3</div>
+                                </div>
+                                <div class="tooltip-desc">Güclü lazer atəşi - yüksək zərər və sürətli atəş kombinasiyası</div>
+                            </div>
+                        </div>
+                        <div class="tower-option" data-tower="plasma" data-star-cost="4" data-damage="60" data-firerate="1500" data-cost="⭐4">
+                            <div class="tower-icon plasma-tower"></div>
+                            <div class="tower-star-cost">⭐4</div>
+                            <div class="tower-info">
+                                <div class="tower-name">Plazma Qülləsi</div>
+                                <div class="tower-cost">⭐4</div>
+                            </div>
+                            <div class="tower-tooltip">
+                                <div class="tooltip-title">Plazma Qülləsi</div>
+                                <div class="tooltip-stats">
+                                    <div>⚔️ Zərər: 60</div>
+                                    <div>🔥 Atəş sürəti: 1.5s</div>
+                                    <div>💰 Qiymət: ⭐4</div>
+                                </div>
+                                <div class="tooltip-desc">Plazma barier yaradır - yoldan keçən düşmənlərə zərər verir</div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="tab-content" id="tab-game">
-                    <h3>Oyun Nəzarəti</h3>
-                    <div class="game-controls">
-                        <button id="startWave">Dalğanı Başlat</button>
-                        <div class="auto-start-container">
-                            <input type="checkbox" id="autoStart" />
-                            <label for="autoStart">Avto Başlat</label>
+                <div class="tab-content" id="tab-special">
+                    <h3>Xüsusi</h3>
+                    <div class="shop-placeholder" style="margin-bottom:8px">Oyun Taxtası (ölçü): <span id="boardDims">9×15</span> — 💎 <span id="shopDiamonds">0</span></div>
+                    <div class="tower-options">
+                        <div class="tower-option" style="cursor:default">
+                            <div class="tower-info">
+                                <div class="tower-name">+2 Sətir (yuxarı + aşağı)</div>
+                                <div class="tower-cost">💎<span id="costRows">5</span></div>
+                            </div>
+                            <button id="buyRows" class="game-controls" style="padding:8px 12px">Al</button>
                         </div>
-                        <button id="restartGame">Yenidən Başlat</button>
-                        <button id="expandGrid">Taxtanı Genişləndir (💎<span id="expandDiamonds">5</span>)</button>
-                        <div class="speed-controls">
-                            <label>Sürət:</label>
-                            <button id="speed1">1x</button>
-                            <button id="speed2">2x</button>
-                            <button id="speed3">3x</button>
+                        <div class="tower-option" style="cursor:default">
+                            <div class="tower-info">
+                                <div class="tower-name">+1 Sütun (mərkəzdən sağa)</div>
+                                <div class="tower-cost">💎<span id="costCol">3</span></div>
+                            </div>
+                            <button id="buyCol" class="game-controls" style="padding:8px 12px">Al</button>
                         </div>
                     </div>
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 8px;">
+                        <div style="margin-bottom: 12px; font-weight: bold; color: #00d4ff; font-size: 14px; text-align: center;">🎁 Hədiyyə Kodu</div>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <input type="text" id="giftCodeInput" placeholder="Kodu daxil edin..." 
+                                   style="width: 100%; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 13px; font-family: Arial, sans-serif; box-sizing: border-box;"
+                                   autocomplete="off" spellcheck="false">
+                            <button id="redeemCode" class="game-controls" 
+                                    style="width: 100%; padding: 12px; background: linear-gradient(45deg, #4a90e2, #357abd); border: none; border-radius: 6px; color: #fff; font-weight: bold; cursor: pointer; font-size: 13px;">
+                                Təsdiq Et
+                            </button>
+                        </div>
+                        <div id="giftCodeMessage" style="font-size: 11px; color: #a0a0a0; text-align: center; margin-top: 10px; min-height: 16px; padding: 5px;"></div>
+                    </div>
                 </div>
+
             </div>
         </div>
 
@@ -238,9 +671,35 @@
             </div>
         </div>
 
-        <div id="towerContext" style="display:none;">
-            <button id="ctxUpgrade">Upgrade</button>
-            <button id="ctxSell">Sell</button>
+        <!-- Context menu that appears near a clicked tower -->
+        <div id="towerContext" style="display:none; gap:8px; flex-direction:column; background:rgba(10,10,10,0.92); padding:10px; border:1px solid #00bcd4; border-radius:8px; position:fixed; z-index:100002;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="ctx-btn" id="ctxRange">🌀 <span id="ctxRangeVal">0</span> (<span id="ctxRangeUp">0/3</span>) — $<span id="ctxRangeCost">50</span></button>
+                <button class="ctx-btn" id="ctxDamage">💥 <span id="ctxDamageVal">0</span> (<span id="ctxDamageUp">0/3</span>) — $<span id="ctxDamageCost">50</span></button>
+                <button class="ctx-btn" id="ctxRate">⚡ <span id="ctxRateVal">0</span> (<span id="ctxRateUp">0/3</span>) — $<span id="ctxRateCost">50</span></button>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="ctx-btn" id="ctxHeal">🩹 $20</button>
+                <button class="ctx-btn" id="ctxHealthUpgrade">❤️ Can Artır: $50</button>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:4px; padding:6px; background:rgba(255,255,255,0.05); border-radius:4px;">
+                <div style="display:flex; gap:4px; align-items:center;">
+                    <button class="ctx-btn" id="ctxAutoHealToggle" style="flex:1;">🔄 Avto Can: Kapalı</button>
+                </div>
+                <div id="ctxAutoHealSettings" style="display:none; gap:4px; align-items:center; flex-direction:row;">
+                    <input type="number" id="ctxAutoHealThreshold" min="1" value="5" style="width:60px; padding:4px; background:rgba(0,0,0,0.5); border:1px solid #00bcd4; border-radius:4px; color:#fff; font-size:12px;" />
+                    <button class="ctx-btn" id="ctxAutoHealConfirm" style="flex:1; padding:4px; font-size:11px;">✓ Təsdiq</button>
+                </div>
+            </div>
+            <button class="ctx-btn" id="ctxAwaken">🌈 (💎20)</button>
+            <button class="ctx-btn" id="ctxShield">🛡️ (💎50)</button>
+            <div style="display:flex; gap:8px;">
+                <button class="ctx-btn" id="ctxPlasmaActivate" style="display:none;">⚡ Plazma Aktiv</button>
+                <button class="ctx-btn" id="ctxPlasmaDeactivate" style="display:none;">⚡ Plazma Söndür</button>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="ctx-btn" id="ctxSell">🪙</button>
+            </div>
         </div>
         <!-- Bottom HUD stats -->
         <div class="hud-bottom" id="hudBottom">
@@ -250,6 +709,8 @@
             <div class="chip"><span class="label">Score</span><span class="value" id="score">0</span></div>
             <div class="chip"><span class="label">Lvl</span><span class="value" id="level">1</span></div>
             <div class="chip"><span class="label">💎</span><span class="value" id="diamonds">0</span></div>
+            <div class="chip"><span class="label">⭐</span><span class="value" id="stars">0</span></div>
+            <div class="chip"><span class="label">Enemies</span><span class="value" id="enemyCount">0</span></div>
         </div>
 
         <!-- Floating toggle button -->
@@ -257,30 +718,308 @@
     </div>
 
     <script>
-        // Check login status
-        if (localStorage.getItem('towerDefenseLoggedIn') !== 'true') {
-            window.location.href = 'login.html';
-        }
+        // Check login status - GitHub Pages üçün skip et
+        (function(){
+            // GitHub Pages üçün login check skip et (backend yoxdur)
+            const isGitHubPages = window.location.hostname.includes('github.io');
+            if (isGitHubPages) {
+                // GitHub Pages-də backend yoxdur, login check skip
+                return;
+            }
+            // Render-da backend var, login lazımdır
+            const loggedIn = localStorage.getItem('towerDefenseLoggedIn');
+            const userId = localStorage.getItem('towerDefenseUserId');
+            if (loggedIn !== 'true' || !userId) {
+                window.location.href = 'login.html';
+                return;
+            }
+        })();
     </script>
-    <script src="assets/game.js"></script>
+    <script>
+        // Auto cache-busting loader: always request fresh JS/CSS
+        (function(){
+            try {
+                var v = Date.now().toString();
+                // Inject versioned game.js
+                var s = document.createElement('script');
+                s.src = 'assets/game.js?v=' + v;
+                s.defer = false;
+                document.head.appendChild(s);
+                // Profil JavaScript
+                var profileScript = document.createElement('script');
+                profileScript.src = 'assets/components/profile/profile.js?v=' + v;
+                profileScript.defer = false;
+                document.head.appendChild(profileScript);
+            } catch(e) {}
+        })();
+    </script>
     <script>
         (function(){
+            console.log('[MENU] Menü script başladı');
             const shop = document.getElementById('mobileShop');
             const btn = document.getElementById('toggleShop');
             const backdrop = document.getElementById('shopBackdrop');
-            function openShop(){ shop.classList.add('open'); backdrop.classList.add('show'); document.documentElement.classList.add('modal-open'); }
-            function closeShop(){ shop.classList.remove('open'); backdrop.classList.remove('show'); document.documentElement.classList.remove('modal-open'); }
-            btn.addEventListener('click', function(){
-                if (shop.classList.contains('open')) closeShop(); else openShop();
+            
+            console.log('[MENU] Elementler yükləndi:');
+            console.log('[MENU] - shop:', shop ? 'tapıldı' : 'TAPILMADI');
+            console.log('[MENU] - btn:', btn ? 'tapıldı' : 'TAPILMADI');
+            console.log('[MENU] - backdrop:', backdrop ? 'tapıldı' : 'TAPILMADI');
+            
+            if (!shop) {
+                console.error('[MENU] XƏTA: mobileShop elementi tapılmadı!');
+                return;
+            }
+            if (!btn) {
+                console.error('[MENU] XƏTA: toggleShop elementi tapılmadı!');
+                return;
+            }
+            if (!backdrop) {
+                console.error('[MENU] XƏTA: shopBackdrop elementi tapılmadı!');
+                return;
+            }
+            
+            console.log('[MENU] Shop element computed styles (başlanğıc):', {
+                display: window.getComputedStyle(shop).display,
+                position: window.getComputedStyle(shop).position,
+                zIndex: window.getComputedStyle(shop).zIndex,
+                visibility: window.getComputedStyle(shop).visibility
             });
-            backdrop.addEventListener('click', closeShop);
+            function openShop(){ 
+                console.log('[MENU] openShop() çağrıldı');
+                const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+                console.log('[MENU] Orientation:', isPortrait ? 'portrait' : 'landscape');
+                console.log('[MENU] Shop element:', shop);
+                console.log('[MENU] Shop computed display:', window.getComputedStyle(shop).display);
+                
+                // Əvvəlcə menüyü görünür hale gətir (important ile CSS'i override et)
+                shop.style.setProperty('display', 'flex', 'important');
+                console.log('[MENU] Display set to flex');
+                shop.classList.add('open'); 
+                console.log('[MENU] Open class added');
+                backdrop.classList.add('show'); 
+                document.documentElement.classList.add('modal-open');
+                console.log('[MENU] Backdrop and modal-open added');
+                
+                // Portrait və Landscape modları ayrı ayrı idarə et
+                if (isPortrait) {
+                    console.log('[MENU] Portrait modu - bottom sheet');
+                    // Portrait: ekranın altından açılmalı (bottom sheet)
+                    shop.style.left = '4px';
+                    shop.style.right = '4px';
+                    shop.style.bottom = '4px';
+                    shop.style.top = 'auto';
+                    shop.style.width = 'calc(100vw - 8px)';
+                    shop.style.height = '65vh';
+                    shop.style.maxHeight = 'calc(100vh - 8px)';
+                    shop.style.maxWidth = 'calc(100vw - 8px)';
+                    shop.style.minHeight = '350px';
+                    // Ekranın altından başla (menü ekranın altında olmalı)
+                    shop.style.setProperty('transform', 'translateY(110%)', 'important');
+                    shop.style.setProperty('opacity', '0', 'important');
+                    shop.style.setProperty('position', 'fixed', 'important');
+                    shop.style.setProperty('z-index', '9999', 'important');
+                    shop.style.setProperty('box-shadow', '0 -10px 40px rgba(0,0,0,0.9)', 'important');
+                    console.log('[MENU] Portrait style özellikləri tətbiq edildi');
+                    console.log('[MENU] Shop getBoundingClientRect:', shop.getBoundingClientRect());
+                    console.log('[MENU] Shop computed styles:', {
+                        display: window.getComputedStyle(shop).display,
+                        position: window.getComputedStyle(shop).position,
+                        zIndex: window.getComputedStyle(shop).zIndex,
+                        transform: window.getComputedStyle(shop).transform,
+                        opacity: window.getComputedStyle(shop).opacity,
+                        bottom: window.getComputedStyle(shop).bottom,
+                        left: window.getComputedStyle(shop).left,
+                        right: window.getComputedStyle(shop).right
+                    });
+                } else {
+                    console.log('[MENU] Landscape modu - slide panel');
+                    // Landscape: sağdan açılmalı (slide panel)
+                    shop.style.top = '8px';
+                    shop.style.bottom = '8px';
+                    shop.style.right = '8px';
+                    shop.style.left = 'auto';
+                    shop.style.width = 'min(420px, 95vw)';
+                    shop.style.height = 'auto';
+                    shop.style.maxHeight = 'calc(100vh - 16px)';
+                    shop.style.minHeight = '450px';
+                    // Sağdan başla
+                    shop.style.setProperty('transform', 'translateX(110%)', 'important');
+                    shop.style.setProperty('opacity', '0', 'important');
+                    shop.style.setProperty('position', 'fixed', 'important');
+                    shop.style.setProperty('z-index', '9999', 'important');
+                    shop.style.setProperty('box-shadow', '-10px 0 40px rgba(0,0,0,0.9)', 'important');
+                    console.log('[MENU] Landscape style özellikləri tətbiq edildi');
+                    console.log('[MENU] Shop getBoundingClientRect:', shop.getBoundingClientRect());
+                    console.log('[MENU] Shop computed styles:', {
+                        display: window.getComputedStyle(shop).display,
+                        position: window.getComputedStyle(shop).position,
+                        zIndex: window.getComputedStyle(shop).zIndex,
+                        transform: window.getComputedStyle(shop).transform,
+                        opacity: window.getComputedStyle(shop).opacity,
+                        top: window.getComputedStyle(shop).top,
+                        right: window.getComputedStyle(shop).right
+                    });
+                }
+                
+                // Bir sonrakı frame-də transform uygula (reflow sonrası animasyon başlasın)
+                // Double RAF ensures layout is complete
+                console.log('[MENU] requestAnimationFrame başladı');
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        console.log('[MENU] Animasyon başladı');
+                        if (isPortrait) {
+                            shop.style.setProperty('transform', 'translateY(0)', 'important');
+                            shop.style.setProperty('opacity', '1', 'important');
+                            console.log('[MENU] Portrait animasyon - translateY(0), opacity: 1');
+                        } else {
+                            shop.style.setProperty('transform', 'translateX(0)', 'important');
+                            shop.style.setProperty('opacity', '1', 'important');
+                            console.log('[MENU] Landscape animasyon - translateX(0), opacity: 1');
+                        }
+                        console.log('[MENU] Final computed styles:', {
+                            display: window.getComputedStyle(shop).display,
+                            transform: window.getComputedStyle(shop).transform,
+                            opacity: window.getComputedStyle(shop).opacity,
+                            visibility: window.getComputedStyle(shop).visibility,
+                            zIndex: window.getComputedStyle(shop).zIndex
+                        });
+                    });
+                });
+            }
+            function closeShop(){ 
+                console.log('[MENU] closeShop() çağrıldı');
+                const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+                if (isPortrait) {
+                    shop.style.setProperty('transform', 'translateY(110%)', 'important');
+                    shop.style.setProperty('opacity', '0', 'important');
+                    console.log('[MENU] Portrait kapanma animasyonu başladı');
+                } else {
+                    shop.style.setProperty('transform', 'translateX(110%)', 'important');
+                    shop.style.setProperty('opacity', '0', 'important');
+                    console.log('[MENU] Landscape kapanma animasyonu başladı');
+                }
+                // Transform və opacity transition tamamlandıqdan sonra tam gizlə
+                setTimeout(() => {
+                    shop.classList.remove('open'); 
+                    backdrop.classList.remove('show'); 
+                    document.documentElement.classList.remove('modal-open');
+                    shop.style.setProperty('display', 'none', 'important'); // Tam gizlə
+                    shop.style.transform = ''; // Reset
+                    shop.style.opacity = ''; // Reset
+                }, 300); // Transition müddəti ilə eyni (0.3s)
+            }
+            btn.addEventListener('click', function(e){
+                console.log('[MENU] Toggle button clicked');
+                console.log('[MENU] Shop has open class:', shop.classList.contains('open'));
+                e.preventDefault();
+                e.stopPropagation();
+                if (shop.classList.contains('open')) {
+                    console.log('[MENU] Menü açıqdır, bağlanacaq');
+                    closeShop();
+                } else {
+                    console.log('[MENU] Menü bağlıdır, açılacaq');
+                    openShop();
+                }
+            });
+            backdrop.addEventListener('click', function(e){
+                console.log('[MENU] Backdrop clicked, menü bağlanacaq');
+                closeShop();
+            });
             // Close on Escape
             document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeShop(); });
-            // Prevent scrolling/zooming gestures while panel is open
-            function blockIfOpen(e){ if(backdrop.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); } }
+            // Orientation dəyişdikdə menü transform-unu yenilə
+            window.addEventListener('orientationchange', function(){
+                setTimeout(function(){
+                    if (shop.classList.contains('open')) {
+                        const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+                        if (isPortrait) {
+                            shop.style.transform = 'translateY(0)';
+                            shop.style.opacity = '1';
+                        } else {
+                            shop.style.transform = 'translateX(0)';
+                            shop.style.opacity = '1';
+                        }
+                    } else {
+                        // Menü kapalıysa, orientation değiştiğinde de kapalı kalsın
+                        shop.style.setProperty('display', 'none', 'important');
+                    }
+                }, 100);
+            });
+            // Resize event-də də kontrol et
+            let resizeTimer;
+            window.addEventListener('resize', function(){
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(function(){
+                    if (shop.classList.contains('open')) {
+                        const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+                        if (isPortrait) {
+                            shop.style.transform = 'translateY(0)';
+                            shop.style.opacity = '1';
+                        } else {
+                            shop.style.transform = 'translateX(0)';
+                            shop.style.opacity = '1';
+                        }
+                    }
+                }, 100);
+            });
+            // Prevent scrolling/zooming gestures while panel is open - amma panel içində scroll izni ver
+            function blockIfOpen(e){ 
+                const target = e.target;
+                const shopPanel = document.getElementById('mobileShop');
+                const contextMenu = document.getElementById('shopTowerContext');
+                
+                // Context menu açıqsa, yalnız context menu içində scroll-a icazə ver
+                if (contextMenu && contextMenu.style.display !== 'none' && contextMenu.style.visibility !== 'hidden') {
+                    if (contextMenu.contains(target) || contextMenu === target) {
+                        return; // Context menu içində scroll-a icazə ver
+                    }
+                    // Context menu açıqdır, amma klik dışarıdadır - scroll-u blokla
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    return;
+                }
+                
+                // Backdrop açıqdırsa (shop panel açıqdır)
+                if(backdrop.classList.contains('show')) {
+                    // Shop panel içində scroll-a icazə ver
+                    if (shopPanel && (shopPanel.contains(target) || shopPanel === target)) {
+                        return; // Panel içində scroll-a icazə ver - heç nə etmə
+                    }
+                    
+                    // Panel xaricində scroll-u blokla
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
+                } 
+            }
             document.addEventListener('touchmove', blockIfOpen, { passive: false });
             document.addEventListener('gesturestart', blockIfOpen, { passive: false });
-            document.addEventListener('wheel', function(e){ if(backdrop.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); } }, { passive: false });
+            document.addEventListener('wheel', function(e){ 
+                const target = e.target;
+                const shopPanel = document.getElementById('mobileShop');
+                const contextMenu = document.getElementById('shopTowerContext');
+                
+                // Context menu açıqsa, yalnız context menu içində wheel scroll-a icazə ver
+                if (contextMenu && contextMenu.style.display !== 'none' && contextMenu.style.visibility !== 'hidden') {
+                    if (contextMenu.contains(target) || contextMenu === target) {
+                        return; // Context menu içində wheel scroll-a icazə ver
+                    }
+                    // Context menu açıqdır, amma wheel event dışarıdadır - scroll-u blokla
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    return;
+                }
+                
+                // Backdrop açıqdırsa (shop panel açıqdır)
+                if(backdrop.classList.contains('show')) {
+                    // Shop panel içində wheel scroll-a icazə ver
+                    if (shopPanel && (shopPanel.contains(target) || shopPanel === target)) {
+                        return;
+                    }
+                    
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
+                } 
+            }, { passive: false });
         })();
         // Board zoom/pan controls (overlay captures when pan mode is active)
         (function(){
@@ -429,7 +1168,35 @@
                 ['pointerdown','touchstart','mousedown'].forEach(function(ev){ c.addEventListener(ev, goFs, { once:true }); });
             }
         })();
-        // Tabs + Board controls
+            // Restart game confirmation
+            (function(){
+                const restartBtn = document.getElementById('restartGame');
+                if (restartBtn) {
+                    restartBtn.addEventListener('click', function(e){
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (confirm('Oyun yenidən başladılacaq. Əminsiniz?')) {
+                            // Call original restart handler if exists
+                            if (window.game && typeof window.game.restartGame === 'function') {
+                                window.game.restartGame();
+                            } else if (window.game && window.game.gameState) {
+                                window.game.gameState.health = 100;
+                                window.game.gameState.money = 500;
+                                window.game.gameState.wave = 1;
+                                window.game.gameState.score = 0;
+                                window.game.enemies = [];
+                                window.game.bullets = [];
+                                window.game.towers = [];
+                                window.game.selectedTower = null;
+                                window.game.waveInProgress = false;
+                                window.game.updateUI();
+                                if (window.game.recomputePath) window.game.recomputePath();
+                            }
+                        }
+                    });
+                }
+            })();
+            // Tabs + Board controls
         (function(){
             const tabs = document.querySelectorAll('.tab-btn');
             const panes = document.querySelectorAll('.tab-content');
