@@ -149,6 +149,11 @@
         .tab-btn.active { background: rgba(74,144,226,0.25); border-color:#4a90e2; color:#fff; }
         .tab-content { display:none; }
         .tab-content.active { display:block; }
+        /* Sticky tabs in the shop panel */
+        #mobileShop .tabs { position: sticky; top: 0; z-index: 2; background: rgba(0,0,0,0.95); padding-top: 6px; padding-bottom: 6px; }
+        #mobileShop .tabs + .separator { position: sticky; top: 46px; height: 1px; background: rgba(255,255,255,0.12); z-index: 2; }
+        /* In landscape the panel slides from right; keep tabs sticky at top as well */
+        @media (orientation: landscape) { #mobileShop .tabs { top: 0; } #mobileShop .tabs + .separator { top: 46px; } }
         /* Context menu button styling for mobile */
         .ctx-btn {
             min-width: 70px;
@@ -427,6 +432,7 @@
                     <button class="tab-btn" data-tab="tab-towers">Qüllələr</button>
                     <button class="tab-btn" data-tab="tab-special">Xüsusi</button>
                 </div>
+                <div class="separator"></div>
 
                 <div class="tab-content active" id="tab-game">
                     <h3>Oyun Nəzarəti</h3>
@@ -491,6 +497,16 @@
                         <button id="applyBoard">Tətbiq et</button>
                     </div>
                     <div class="board-controls" style="margin-top:8px">
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="autoResizeToggle" checked>
+                            <span>🔄 Avtomatik Resize</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; margin-left:8px;">
+                            <input type="checkbox" id="manualPanResizeToggle">
+                            <span>✋ Elle Pan/Zoom</span>
+                        </label>
+                    </div>
+                    <div class="board-controls" style="margin-top:8px">
                         <label>MiQyas</label>
                         <input id="boardZoom" type="range" min="50" max="200" value="100" />
                         <span id="boardZoomLabel" class="chip">100%</span>
@@ -500,7 +516,7 @@
                         <button id="fitCenterBtn">Uygunlaşdır</button>
                         <button id="resetViewBtn">Sıfırla</button>
                     </div>
-                    <small style="opacity:.8">İpucu: Ekran fırlananda ölçü avtomatik seçilir; burada dəyişə bilərsiniz.</small>
+                    <small style="opacity:.8">İpucu: Auto-resize aktivdir - telefon ölçülərinə görə taxta avtomatik uyğunlaşır.</small>
                 </div>
 
                 <div class="tab-content" id="tab-towers">
@@ -1028,16 +1044,24 @@
             const zoom = document.getElementById('boardZoom');
             const zoomLabel = document.getElementById('boardZoomLabel');
             const panToggle = document.getElementById('panToggle');
+            // Global scope-a ver - elle pan/resize üçün lazımdır
+            window.boardZoomState = { currentZoom: 1, panX: 0, panY: 0 };
             let currentZoom = 1; let panX = 0; let panY = 0;
             function applyTransform(){
                 const panEnabled = !!(panToggle && panToggle.checked);
                 canvas.style.transformOrigin = 'center center';
+                // Global state-i yenilə
+                window.boardZoomState.currentZoom = currentZoom;
+                window.boardZoomState.panX = panX;
+                window.boardZoomState.panY = panY;
                 if (panEnabled || (currentZoom !== 1)) {
                     canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
                 } else {
                     // Ensure no residual transform when pan disabled
                     canvas.style.transform = '';
                     panX = 0; panY = 0;
+                    window.boardZoomState.panX = 0;
+                    window.boardZoomState.panY = 0;
                 }
             }
             function setZoomFromSlider(){
@@ -1046,6 +1070,16 @@
                 if (zoomLabel) zoomLabel.textContent = Math.round(currentZoom*100) + '%';
                 applyTransform();
             }
+            // Expose a safe updater for external touch handlers
+            window.setBoardTransform = function(next){
+                if (!next) return;
+                if (typeof next.currentZoom === 'number') currentZoom = Math.max(0.5, Math.min(2, next.currentZoom));
+                if (typeof next.panX === 'number') panX = next.panX;
+                if (typeof next.panY === 'number') panY = next.panY;
+                if (zoom) zoom.value = String(Math.round(currentZoom * 100));
+                if (zoomLabel) zoomLabel.textContent = Math.round(currentZoom * 100) + '%';
+                applyTransform();
+            };
             zoom?.addEventListener('input', setZoomFromSlider);
             document.getElementById('fitCenterBtn')?.addEventListener('click', ()=>{ currentZoom=1; panX=0; panY=0; if(zoom){ zoom.value='100'; if(zoomLabel) zoomLabel.textContent='100%'; } applyTransform(); });
             document.getElementById('resetViewBtn')?.addEventListener('click', ()=>{ currentZoom=1; panX=0; panY=0; if(zoom){ zoom.value='100'; if(zoomLabel) zoomLabel.textContent='100%'; } applyTransform(); });
@@ -1234,6 +1268,251 @@
                 if (sr && rowsInput) rowsInput.value = sr;
                 if (sc && colsInput) colsInput.value = sc;
             } catch(e) {}
+
+            // Auto-resize feature: telefon ölçülərinə görə taxtanı optimize et
+            const autoResizeToggle = document.getElementById('autoResizeToggle');
+            const manualPanResizeToggle = document.getElementById('manualPanResizeToggle');
+            let autoResizeEnabled = true;
+            let manualPanResizeEnabled = false;
+            let autoResizeTimer = null;
+
+            function calculateOptimalBoardSize() {
+                if (!window.game || !autoResizeEnabled) return;
+                const canvas = document.getElementById('gameCanvas');
+                if (!canvas) return;
+                const cw = canvas.clientWidth || window.innerWidth;
+                const ch = canvas.clientHeight || window.innerHeight;
+                const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+                const aspectRatio = cw / ch;
+                
+                // Optimize edilmiş ölçülər: ekran ölçüsünə görə
+                let optimalRows = 11, optimalCols = 20;
+                if (portrait) {
+                    // Portrait: daha az sətir, daha çox sütun (en uzun)
+                    optimalRows = Math.max(9, Math.min(15, Math.round(ch / 50)));
+                    optimalCols = Math.max(15, Math.min(25, Math.round(cw / 40)));
+                } else {
+                    // Landscape: daha çox sətir, daha az sütun
+                    optimalRows = Math.max(11, Math.min(20, Math.round(ch / 45)));
+                    optimalCols = Math.max(18, Math.min(30, Math.round(cw / 35)));
+                }
+                
+                if (window.game && (window.game.rows !== optimalRows || window.game.cols !== optimalCols)) {
+                    window.game.rows = optimalRows;
+                    window.game.cols = optimalCols;
+                    window.game.orientationOverride = false; // Auto-resize aktivdir
+                    window.game.updateGridDimensions();
+                    window.game.updateTowerPositions();
+                    window.game.recomputePath();
+                    
+                    // Update input fields
+                    if (rowsInput) rowsInput.value = optimalRows;
+                    if (colsInput) colsInput.value = optimalCols;
+                    
+                    try {
+                        localStorage.setItem('td_board_rows', String(optimalRows));
+                        localStorage.setItem('td_board_cols', String(optimalCols));
+                    } catch(e) {}
+                }
+            }
+
+            if (autoResizeToggle) {
+                // Load saved state
+                try {
+                    const saved = localStorage.getItem('td_auto_resize');
+                    if (saved !== null) {
+                        autoResizeEnabled = saved === 'true';
+                        autoResizeToggle.checked = autoResizeEnabled;
+                    }
+                } catch(e) {}
+
+                autoResizeToggle.addEventListener('change', function(e) {
+                    autoResizeEnabled = e.target.checked;
+                    try {
+                        localStorage.setItem('td_auto_resize', String(autoResizeEnabled));
+                    } catch(e) {}
+                    if (autoResizeEnabled) {
+                        // Auto-resize aktiv olduqda, optimize et
+                        if (window.game) { window.game.orientationOverride = false; }
+                        calculateOptimalBoardSize();
+                    } else {
+                        // Auto-resize deaktiv olduqda, istifadəçi təyin etdiyi ölçüyü saxla
+                        if (window.game) { window.game.orientationOverride = true; }
+                    }
+                });
+
+                // Auto-resize on resize/orientation change
+                function scheduleAutoResize() {
+                    clearTimeout(autoResizeTimer);
+                    autoResizeTimer = setTimeout(() => {
+                        if (autoResizeEnabled) calculateOptimalBoardSize();
+                    }, 100);
+                }
+                window.addEventListener('resize', scheduleAutoResize);
+                window.addEventListener('orientationchange', scheduleAutoResize);
+                // Initial auto-resize
+                setTimeout(() => {
+                    if (autoResizeEnabled) calculateOptimalBoardSize();
+                }, 500);
+            }
+
+            // Manual pan/resize with touch gestures
+            if (manualPanResizeToggle) {
+                const canvas = document.getElementById('gameCanvas');
+                const panLayer = document.getElementById('panLayer');
+                let touchStartDistance = 0;
+                let touchStartZoom = 1;
+                let touchStartPanX = 0;
+                let touchStartPanY = 0;
+                let touchStartMidX = 0;
+                let touchStartMidY = 0;
+                let touches = [];
+
+                function getDistance(touches) {
+                    if (touches.length < 2) return 0;
+                    const dx = touches[1].clientX - touches[0].clientX;
+                    const dy = touches[1].clientY - touches[0].clientY;
+                    return Math.sqrt(dx * dx + dy * dy);
+                }
+
+                function getMidpoint(touches) {
+                    if (touches.length < 2) return { x: 0, y: 0 };
+                    return {
+                        x: (touches[0].clientX + touches[1].clientX) / 2,
+                        y: (touches[0].clientY + touches[1].clientY) / 2
+                    };
+                }
+
+                // Touch gesture handlers - global zoom state istifadə edir
+                let touchHandlersAdded = false;
+                function addTouchHandlers() {
+                    if (touchHandlersAdded || !canvas) return;
+                    const zoom = document.getElementById('boardZoom');
+                    const zoomLabel = document.getElementById('boardZoomLabel');
+                    
+                    // Pinch zoom and pan handlers
+                    function handleTouchStart(e) {
+                        if (!manualPanResizeEnabled) return;
+                        touches = Array.from(e.touches);
+                        
+                        const state = window.boardZoomState || { currentZoom: 1, panX: 0, panY: 0 };
+                        
+                        if (touches.length === 2) {
+                            // Pinch zoom
+                            touchStartDistance = getDistance(touches);
+                            touchStartZoom = state.currentZoom || 1;
+                            const mid = getMidpoint(touches);
+                            touchStartMidX = mid.x;
+                            touchStartMidY = mid.y;
+                            e.preventDefault();
+                        } else if (touches.length === 1 && (state.currentZoom > 1 || state.panX !== 0 || state.panY !== 0)) {
+                            // Single finger pan (only if zoomed or panned)
+                            const touch = touches[0];
+                            touchStartPanX = state.panX;
+                            touchStartPanY = state.panY;
+                            touchStartMidX = touch.clientX;
+                            touchStartMidY = touch.clientY;
+                            e.preventDefault();
+                        }
+                    }
+                    
+                    function handleTouchMove(e) {
+                        if (!manualPanResizeEnabled) return;
+                        touches = Array.from(e.touches);
+                        const state = window.boardZoomState || { currentZoom: 1, panX: 0, panY: 0 };
+                        
+                        if (touches.length === 2) {
+                            // Pinch zoom
+                            const distance = getDistance(touches);
+                            const scale = distance / touchStartDistance;
+                            const newZoom = Math.max(0.5, Math.min(2, touchStartZoom * scale));
+                            
+                            // Update global state
+                            state.currentZoom = newZoom;
+                            if (zoom) zoom.value = Math.round(newZoom * 100);
+                            if (zoomLabel) zoomLabel.textContent = Math.round(newZoom * 100) + '%';
+                            
+                            // Zoom midpoint around touch center
+                            const mid = getMidpoint(touches);
+                            const container = document.querySelector('.game-area');
+                            if (container) {
+                                const cRect = container.getBoundingClientRect();
+                                const offsetX = (mid.x - touchStartMidX) * (1 - 1/scale);
+                                const offsetY = (mid.y - touchStartMidY) * (1 - 1/scale);
+                                state.panX = touchStartPanX + offsetX;
+                                state.panY = touchStartPanY + offsetY;
+                            }
+                            
+                            // Apply transform directly
+                            window.setBoardTransform && window.setBoardTransform({ currentZoom: state.currentZoom, panX: state.panX, panY: state.panY });
+                            e.preventDefault();
+                        } else if (touches.length === 1 && (state.currentZoom > 1 || state.panX !== 0 || state.panY !== 0)) {
+                            // Single finger pan
+                            const touch = touches[0];
+                            const dx = touch.clientX - touchStartMidX;
+                            const dy = touch.clientY - touchStartMidY;
+                            state.panX = touchStartPanX + dx;
+                            state.panY = touchStartPanY + dy;
+                            
+                            // Clamp within container
+                            const container = document.querySelector('.game-area');
+                            if (container) {
+                                const cRect = container.getBoundingClientRect();
+                                const kRect = canvas.getBoundingClientRect();
+                                const maxX = Math.max(0, (kRect.width*state.currentZoom - cRect.width) / 2);
+                                const maxY = Math.max(0, (kRect.height*state.currentZoom - cRect.height) / 2);
+                                state.panX = Math.min(maxX, Math.max(-maxX, state.panX));
+                                state.panY = Math.min(maxY, Math.max(-maxY, state.panY));
+                            }
+                            
+                            // Apply transform directly
+                            window.setBoardTransform && window.setBoardTransform({ currentZoom: state.currentZoom, panX: state.panX, panY: state.panY });
+                            e.preventDefault();
+                        }
+                    }
+                    
+                    function handleTouchEnd(e) {
+                        touches = [];
+                    }
+                    
+                    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+                    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+                    canvas.addEventListener('touchend', handleTouchEnd);
+                    touchHandlersAdded = true;
+                }
+
+                manualPanResizeToggle.addEventListener('change', function(e) {
+                    manualPanResizeEnabled = e.target.checked;
+                    try {
+                        localStorage.setItem('td_manual_pan_resize', String(manualPanResizeEnabled));
+                    } catch(e) {}
+                    
+                    if (manualPanResizeEnabled && canvas) {
+                        // Elle pan/resize aktiv olduqda, canvas üzərində touch event'ləri dinlə
+                        canvas.style.touchAction = 'none';
+                        panLayer.style.display = 'none'; // Pan layer-i gizlə
+                        addTouchHandlers(); // Event listener-ları əlavə et
+                    } else {
+                        canvas.style.touchAction = '';
+                        panLayer.style.display = '';
+                        // Event listener-ları silməyə ehtiyac yoxdur - handleTouchStart/handleTouchMove içində yoxlama var
+                    }
+                });
+
+                // Load saved state
+                try {
+                    const saved = localStorage.getItem('td_manual_pan_resize');
+                    if (saved !== null) {
+                        manualPanResizeEnabled = saved === 'true';
+                        manualPanResizeToggle.checked = manualPanResizeEnabled;
+                        if (manualPanResizeEnabled) {
+                            canvas.style.touchAction = 'none';
+                            panLayer.style.display = 'none';
+                            addTouchHandlers(); // Event listener-ları əlavə et
+                        }
+                    }
+                } catch(e) {}
+            }
         })();
     </script>
 </body>

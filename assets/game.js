@@ -1938,6 +1938,7 @@ class TowerDefenseGame {
             
             // Sol klik - qüllə seçimi, siyahının yuxarısına keçir və kontekst menyu aç
             option.addEventListener('click', (e) => {
+                if (option.__longPressFired) { option.__longPressFired = false; return; }
                 const towerType = e.currentTarget?.dataset?.tower;
                 const targetElement = e.currentTarget;
                 
@@ -1994,6 +1995,27 @@ class TowerDefenseGame {
                     }
                 }
             });
+
+            // Mobil üçün: uzun basmada kontekst menyusunu aç
+            let lpTimer = null; let lpX = 0; let lpY = 0;
+            option.addEventListener('touchstart', (e) => {
+                const t = e.touches && e.touches[0];
+                if (!t) return;
+                lpX = t.clientX; lpY = t.clientY;
+                option.__longPressFired = false;
+                clearTimeout(lpTimer);
+                lpTimer = setTimeout(() => {
+                    option.__longPressFired = true;
+                    const towerType = option.dataset?.tower;
+                    if (towerType) {
+                        this.selectTowerType(towerType);
+                        this.showShopTowerContextMenu(option, towerType, lpX, lpY);
+                    }
+                }, 450);
+            }, { passive: true });
+            const cancelLongPress = () => { clearTimeout(lpTimer); };
+            option.addEventListener('touchend', cancelLongPress, { passive: true });
+            option.addEventListener('touchcancel', cancelLongPress, { passive: true });
         });
         
         // Mağazadaki kule iconlarını oyundaki forma uygun çiz - awaken ve shield efektleri ile
@@ -2915,23 +2937,32 @@ class TowerDefenseGame {
             this.debugLog('ERROR: towerContext element not found');
             return;
         }
-        // Position near tower in viewport coords (position: fixed)
+        // Positioning rules: on mobile, center the menu with safe margins; on desktop, keep near tower
         const rect = this.canvas.getBoundingClientRect();
         const towerVX = rect.left + tower.x; // viewport relative
         const towerVY = rect.top + tower.y;
 
-        // Default open to the right of the tower
-        let left = Math.round(towerVX + this.gridSize * 0.6);
-        let top = Math.round(towerVY - this.gridSize * 0.6);
+        const isMobile = (('ontouchstart' in window) || navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+        let left, top;
 
-        // Ensure the menu is within viewport; if too close to right edge, open on the left
         ctx.style.display = 'flex';
         const mRect = ctx.getBoundingClientRect();
         ctx.style.display = 'none';
-        const vw = window.innerWidth; const vh = window.innerHeight;
-        if (left + mRect.width > vw - 8) left = Math.round(towerVX - mRect.width - this.gridSize * 0.6);
-        if (top + mRect.height > vh - 8) top = vh - mRect.height - 8;
-        if (top < 8) top = 8;
+        const vw = window.innerWidth; const vh = window.innerHeight; const margin = 12;
+
+        if (isMobile) {
+            // Center with equal margins on all sides
+            left = Math.max(margin, Math.round((vw - mRect.width) / 2));
+            top = Math.max(margin, Math.round((vh - mRect.height) / 2));
+        } else {
+            // Default open to the right of the tower
+            left = Math.round(towerVX + this.gridSize * 0.6);
+            top = Math.round(towerVY - this.gridSize * 0.6);
+            // Keep within viewport
+            if (left + mRect.width > vw - margin) left = Math.round(towerVX - mRect.width - this.gridSize * 0.6);
+            if (top + mRect.height > vh - margin) top = vh - mRect.height - margin;
+            if (top < margin) top = margin;
+        }
 
         ctx.style.left = `${left}px`;
         ctx.style.top = `${top}px`;
@@ -7219,8 +7250,22 @@ class TowerDefenseGame {
         // Məktubu gizli rejimdə yerləşdirərək ölçüsünü öyrən
         shopCtx.style.display = 'flex';
         shopCtx.style.visibility = 'hidden';
-        shopCtx.style.left = `${x}px`;
-        shopCtx.style.top = `${y}px`;
+        // For mobile, center; for desktop, use x/y but keep within margins
+        const isMobileCtx = (('ontouchstart' in window) || navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+        const margin2 = 12;
+        if (isMobileCtx) {
+            const vw2 = window.innerWidth, vh2 = window.innerHeight;
+            // Temporarily position to measure
+            shopCtx.style.left = '0px'; shopCtx.style.top = '0px';
+            const menuRect = shopCtx.getBoundingClientRect();
+            const cx = Math.max(margin2, Math.round((vw2 - menuRect.width) / 2));
+            const cy = Math.max(margin2, Math.round((vh2 - menuRect.height) / 2));
+            shopCtx.style.left = `${cx}px`;
+            shopCtx.style.top = `${cy}px`;
+        } else {
+            shopCtx.style.left = `${x}px`;
+            shopCtx.style.top = `${y}px`;
+        }
         const menuRect = shopCtx.getBoundingClientRect();
         
         let finalX = x;
