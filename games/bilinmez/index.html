@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3 Taş Oyunu - İki Oyunçulu</title>
+    <link rel="stylesheet" href="../../assets/style.css?v=1">
+    <link rel="stylesheet" href="../../assets/components/profile/profile.css?v=1">
+    <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1f25 0%, #0f1419 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow-x: hidden;
+        }
+        
+        .game-header {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #00bcd4;
+            box-shadow: 0 2px 10px rgba(0, 188, 212, 0.3);
+        }
+        
+        .game-header h1 {
+            color: #00bcd4;
+            margin: 0;
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        .game-info {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .room-info {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .room-code {
+            font-weight: bold;
+            color: #00bcd4;
+            font-size: 16px;
+        }
+        
+        .player-status {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .player {
+            padding: 8px 15px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .player.orange {
+            border-color: #ff9800;
+            background: rgba(255, 152, 0, 0.2);
+        }
+        
+        .player.blue {
+            border-color: #2196F3;
+            background: rgba(33, 150, 243, 0.2);
+        }
+        
+        .player.current-turn {
+            border-color: #00bcd4;
+            box-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        .profile-section {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .game-board-container {
+            position: relative;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.2);
+        }
+        
+        .game-board {
+            position: relative;
+            width: 600px;
+            height: 600px;
+            background: #f5f5f5;
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+        
+        .grid-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(to right, rgba(0,0,0,0.1) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0,0,0,0.1) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.3;
+        }
+        
+        .path {
+            position: absolute;
+            background: #FFD700;
+            border: 3px solid #000;
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+        
+        .path-vertical-left {
+            left: 50px;
+            top: 50px;
+            width: 60px;
+            height: 500px;
+        }
+        
+        .path-horizontal {
+            left: 50px;
+            top: 300px;
+            width: 500px;
+            height: 60px;
+        }
+        
+        .path-vertical-right {
+            right: 50px;
+            top: 50px;
+            width: 60px;
+            height: 500px;
+        }
+        
+        .path-vertical-middle-left {
+            left: 50px;
+            top: 300px;
+            width: 60px;
+            height: 100px;
+        }
+        
+        .path-vertical-middle-center {
+            left: 270px;
+            top: 300px;
+            width: 60px;
+            height: 100px;
+        }
+        
+        .path-vertical-middle-right {
+            right: 50px;
+            top: 300px;
+            width: 60px;
+            height: 100px;
+        }
+        
+        .path-vertical-top-left {
+            left: 50px;
+            top: 200px;
+            width: 60px;
+            height: 100px;
+        }
+        
+        .stone {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 3px solid #000;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 10;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .stone.orange {
+            background: #ff9800;
+        }
+        
+        .stone.blue {
+            background: #2196F3;
+        }
+        
+        .stone:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+        }
+        
+        .stone.selected {
+            border-color: #00bcd4;
+            box-shadow: 0 0 15px rgba(0, 188, 212, 0.8);
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+        
+        .stone.destination {
+            border-color: #4CAF50;
+            box-shadow: 0 0 15px rgba(76, 175, 80, 0.8);
+        }
+        
+        .room-controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            background: linear-gradient(45deg, #00bcd4, #0097a7);
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            background: linear-gradient(45deg, #0097a7, #00bcd4);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 188, 212, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .waiting-room {
+            text-align: center;
+            padding: 40px;
+            color: #fff;
+        }
+        
+        .waiting-room h2 {
+            color: #00bcd4;
+            margin-bottom: 20px;
+        }
+        
+        .waiting-message {
+            font-size: 18px;
+            margin-bottom: 30px;
+        }
+        
+        .room-code-display {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00bcd4;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 188, 212, 0.1);
+            border-radius: 8px;
+            border: 2px solid #00bcd4;
+        }
+        
+        .game-status {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            color: #fff;
+            text-align: center;
+            font-size: 18px;
+        }
+        
+        .game-status.winner {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        .game-status.loser {
+            color: #f44336;
+        }
+        
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100005;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            overflow: auto;
+        }
+        
+        .modal-content {
+            background: rgba(10, 10, 10, 0.95);
+            margin: 10% auto;
+            padding: 30px;
+            border: 2px solid #00bcd4;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.5);
+        }
+        
+        .modal-header {
+            color: #00bcd4;
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .modal-form-group {
+            margin-bottom: 20px;
+        }
+        
+        .modal-form-group label {
+            display: block;
+            color: #00bcd4;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .modal-form-group input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        
+        .modal-form-group input:focus {
+            outline: none;
+            border-color: #00bcd4;
+            box-shadow: 0 0 10px rgba(0, 188, 212, 0.3);
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
+        .modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .modal-btn-primary {
+            background: linear-gradient(45deg, #00bcd4, #0097a7);
+            color: #fff;
+        }
+        
+        .modal-btn-primary:hover {
+            background: linear-gradient(45deg, #0097a7, #00bcd4);
+        }
+        
+        .modal-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .modal-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* Lobby Styles */
+        .lobby-container {
+            margin-top: 30px;
+            width: 100%;
+            max-width: 800px;
+        }
+        
+        .lobby-title {
+            color: #00bcd4;
+            font-size: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .lobby-list {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .lobby-room-card {
+            background: rgba(10, 10, 10, 0.95);
+            border: 2px solid #00bcd4;
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        
+        .lobby-room-card:hover {
+            border-color: #0097a7;
+            box-shadow: 0 0 20px rgba(0, 188, 212, 0.3);
+        }
+        
+        .lobby-room-info {
+            flex: 1;
+        }
+        
+        .lobby-room-name {
+            color: #00bcd4;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .lobby-room-details {
+            color: #ccc;
+            font-size: 14px;
+        }
+        
+        .lobby-room-status {
+            color: #4CAF50;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .lobby-room-status.full {
+            color: #f44336;
+        }
+        
+        .lobby-room-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .lobby-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .lobby-btn-join {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: #fff;
+        }
+        
+        .lobby-btn-join:hover {
+            background: linear-gradient(45deg, #45a049, #4CAF50);
+        }
+        
+        .lobby-btn-join:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+        
+        .refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* Close modal when clicking outside */
+        .modal-content {
+            position: relative;
+        }
+        
+        .modal-content:before {
+            content: '';
+            position: absolute;
+            top: -20px;
+            right: -20px;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-header">
+        <h1>🎮 3 Taş Oyunu</h1>
+        <div class="game-info">
+            <div class="room-info" id="roomInfo" style="display: none;">
+                <button id="backToLobbyBtn" class="home-btn" title="Lobiyə Qayıt" style="margin-right: 10px;">←</button>
+                <button id="deleteRoomBtn" class="home-btn" title="Otağı Sil" style="margin-right: 10px; background: rgba(244, 67, 54, 0.2); border-color: #f44336;">🗑️</button>
+                <div>Otaq Kodu:</div>
+                <div class="room-code" id="roomCode">-</div>
+            </div>
+            <div class="player-status" id="playerStatus" style="display: none;">
+                <div class="player orange" id="playerOrange">
+                    <span>Turuncu: </span><span id="playerOrangeName">-</span>
+                </div>
+                <div class="player blue" id="playerBlue">
+                    <span>Mavi: </span><span id="playerBlueName">-</span>
+                </div>
+            </div>
+        </div>
+        <div class="profile-section">
+            <button id="homeBtn" class="home-btn" title="Ana Səhifəyə Qayıt">🏠</button>
+            <div class="profile-info">
+                <span class="profile-icon">👤</span>
+                <span id="profileUsername" class="profile-username">İstifadəçi</span>
+            </div>
+            <div class="profile-dropdown" id="profileDropdown">
+                <div class="profile-dropdown-content">
+                    <div class="profile-menu-item" id="editProfileBtn">
+                        <span>Profili Düzəlt</span>
+                    </div>
+                    <div class="profile-menu-item" id="logoutBtn">
+                        <span>Çıxış</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="game-container">
+        <!-- Waiting Room -->
+        <div id="waitingRoom" class="waiting-room">
+            <h2>Aktif Otaqlar və Qoşulma</h2>
+            <p style="color: #ccc; text-align: center; margin-bottom: 20px;">
+                Aşağıdakı aktiv otaqlara qoşula bilərsiniz və ya öz otağınızı yaradıb başqalarını dəvət edə bilərsiniz
+            </p>
+            <div class="room-controls">
+                <button class="btn" id="createRoomBtn">Yeni Otaq Yarat</button>
+                <button class="btn" id="refreshLobbyBtn">Lobini Yenilə</button>
+            </div>
+            
+            <!-- Lobby List -->
+            <div class="lobby-container">
+                <h3 class="lobby-title">Aktif Otaqlar</h3>
+                <button class="refresh-btn" id="refreshLobbyBtn2">🔄 Yenilə</button>
+                <div id="lobbyList" class="lobby-list">
+                    <!-- Rooms will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Create Room Modal -->
+        <div id="createRoomModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">Yeni Otaq Yarat</div>
+                <form id="createRoomForm">
+                    <div class="modal-form-group">
+                        <label for="roomName">Otaq Adı:</label>
+                        <input type="text" id="roomName" name="roomName" required 
+                               placeholder="Otaq adını daxil edin" maxlength="30">
+                    </div>
+                    <div class="modal-form-group">
+                        <label for="roomPassword">Şifrə (İstəyə bağlı):</label>
+                        <input type="password" id="roomPassword" name="roomPassword" 
+                               placeholder="Şifrə təyin edin (boş buraxa bilərsiniz)" maxlength="20">
+                    </div>
+                    <div class="modal-buttons">
+                        <button type="button" class="modal-btn modal-btn-secondary" id="cancelCreateBtn">Ləğv Et</button>
+                        <button type="submit" class="modal-btn modal-btn-primary">Yarat</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Join Room Modal (for password protected rooms) -->
+        <div id="joinRoomModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">Otaqa Qoşul</div>
+                <form id="joinRoomForm">
+                    <div class="modal-form-group">
+                        <label id="joinRoomNameLabel">Otaq: <span id="joinRoomName"></span></label>
+                    </div>
+                    <div class="modal-form-group" id="passwordGroup" style="display: none;">
+                        <label for="joinRoomPassword">Şifrə:</label>
+                        <input type="password" id="joinRoomPassword" name="joinRoomPassword" 
+                               placeholder="Otaq şifrəsini daxil edin" required>
+                    </div>
+                    <div class="modal-buttons">
+                        <button type="button" class="modal-btn modal-btn-secondary" id="cancelJoinBtn">Ləğv Et</button>
+                        <button type="submit" class="modal-btn modal-btn-primary">Qoşul</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Game Board -->
+        <div id="gameBoardContainer" style="display: none;">
+            <div class="game-board-container">
+                <div class="game-board" id="gameBoard">
+                    <div class="grid-background"></div>
+                    
+                    <!-- Paths -->
+                    <div class="path path-vertical-left"></div>
+                    <div class="path path-horizontal"></div>
+                    <div class="path path-vertical-right"></div>
+                    <div class="path path-vertical-middle-left"></div>
+                    <div class="path path-vertical-middle-center"></div>
+                    <div class="path path-vertical-middle-right"></div>
+                    <div class="path path-vertical-top-left"></div>
+                    
+                    <!-- Stones will be added dynamically -->
+                </div>
+            </div>
+            
+            <div class="game-status" id="gameStatus"></div>
+        </div>
+    </div>
+    
+    <!-- Socket.IO Client Library -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="../../assets/components/profile/profile.js?v=1"></script>
+    <script src="game.js?v=1"></script>
+</body>
+</html>
+

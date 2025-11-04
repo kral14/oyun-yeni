@@ -1,434 +1,253 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="az">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Tower Defense Game</title>
-    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <!-- GitHub Pages base path -->
-    <script>
-        (function() {
-            const isGitHubPages = window.location.hostname.includes('github.io');
-            if (isGitHubPages) {
-                const repoName = window.location.pathname.split('/')[1] || 'oyun-yeni';
-                const base = '/' + repoName + '/';
-                const baseTag = document.createElement('base');
-                baseTag.href = base;
-                document.head.insertBefore(baseTag, document.head.firstChild);
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no">
+    <title>Ana Səhifə - Oyunlar</title>
+    <link rel="stylesheet" href="../assets/style.css?v=1">
+    <link rel="stylesheet" href="../assets/components/profile/profile.css?v=1">
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1f25 0%, #0f1419 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .home-header {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #00bcd4;
+            box-shadow: 0 2px 10px rgba(0, 188, 212, 0.3);
+        }
+        
+        .home-header h1 {
+            color: #00bcd4;
+            margin: 0;
+            font-size: 32px;
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        .profile-section {
+            position: relative;
+        }
+        
+        .games-container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        
+        .games-title {
+            text-align: center;
+            color: #00bcd4;
+            font-size: 28px;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            padding: 20px;
+        }
+        
+        .game-card {
+            background: rgba(10, 10, 10, 0.95);
+            border: 2px solid #00bcd4;
+            border-radius: 12px;
+            padding: 30px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(0, 188, 212, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .game-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 188, 212, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .game-card:hover::before {
+            left: 100%;
+        }
+        
+        .game-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.4);
+            border-color: #0097a7;
+        }
+        
+        .game-card-icon {
+            font-size: 64px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .game-card-title {
+            color: #00bcd4;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 15px;
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        .game-card-description {
+            color: #ccc;
+            font-size: 14px;
+            text-align: center;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        
+        .game-card-features {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            color: #aaa;
+            font-size: 13px;
+        }
+        
+        .game-card-features li {
+            padding: 5px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        .game-card-features li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #00bcd4;
+            font-weight: bold;
+        }
+        
+        .coming-soon {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .coming-soon:hover {
+            transform: none;
+        }
+        
+        .coming-soon-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 152, 0, 0.8);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 768px) {
+            .games-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+                padding: 10px;
             }
-        })();
-    </script>
-    <link rel="stylesheet" href="assets/style.css?v=1">
-    <link rel="stylesheet" href="assets/components/profile/profile.css?v=1">
-    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="assets/manifest.webmanifest">
-    <meta name="theme-color" content="#0a84ff">
-    <meta name="mobile-web-app-capable" content="yes">
-    <script>
-        (function(){
-            function isMobileEnv(){
-                try {
-                    var mq = window.matchMedia ? window.matchMedia('(max-width: 900px)') : { matches:false };
-                    var small = mq.matches;
-                    var touch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-                    return small || touch;
-                } catch(e) { return false; }
+            
+            .home-header h1 {
+                font-size: 24px;
             }
-            function maybeRedirect(){
-                var alreadyMobile = /(?:mobile\.html|\/mobile\/?(?:index\.html)?)$/i.test(window.location.pathname);
-                if (isMobileEnv() && !alreadyMobile) {
-                    window.location.replace('mobile.html');
-                }
+            
+            .games-title {
+                font-size: 24px;
             }
-            var debounce;
-            function onResize(){
-                clearTimeout(debounce);
-                debounce = setTimeout(maybeRedirect, 120);
-            }
-            // initial check
-            maybeRedirect();
-            // react to changes
-            window.addEventListener('resize', onResize);
-            window.addEventListener('orientationchange', onResize);
-        })();
-    </script>
-    <script>
-        // Auto cache-busting loader: always request fresh JS/CSS
-        (function(){
-            try {
-                var v = Date.now().toString();
-                // Bust CSS link if present
-                var links = document.querySelectorAll('link[rel="stylesheet"]');
-                links.forEach(function(l){
-                    var href = l.getAttribute('href') || '';
-                    var base = href.split('?')[0];
-                    l.setAttribute('href', base + '?v=' + v);
-                });
-                // Inject versioned game.js before closing head
-                var head = document.getElementsByTagName('head')[0];
-                var s = document.createElement('script');
-                s.src = 'assets/game.js?v=' + v;
-                s.defer = false;
-                head.appendChild(s);
-                // Profil JavaScript
-                var profileScript = document.createElement('script');
-                profileScript.src = 'assets/components/profile/profile.js?v=' + v;
-                profileScript.defer = false;
-                head.appendChild(profileScript);
-                // Prevent duplicate base script later
-                window.__INJECTED_VERSIONED_SCRIPT__ = true;
-                window.__BUILD_VERSION__ = v;
-            } catch(e) {}
-        })();
-    </script>
-    <script>
-        // Register service worker for PWA installability
-        (function(){
-            if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function(){
-                    // Before registering new SW, clear old caches and unregister to avoid stale assets
-                    Promise.resolve().then(function(){
-                        return caches && caches.keys ? caches.keys().then(function(keys){
-                            return Promise.all(keys.map(function(k){ return caches.delete(k); }));
-                        }) : null;
-                    }).then(function(){
-                        return navigator.serviceWorker.getRegistrations();
-                    }).then(function(regs){
-                        return Promise.all(regs.map(function(r){ return r.unregister(); }));
-                    }).catch(function(){})
-                    .finally(function(){
-                        const swPath = 'assets/sw.js?v=' + (window.__BUILD_VERSION__ || Date.now());
-                        navigator.serviceWorker.register(swPath).then(function(reg){
-                            if (reg && reg.update) reg.update();
-                        }).catch(function(){});
-                    });
-                });
-            }
-        })();
-    </script>
+        }
+    </style>
 </head>
 <body>
-    <div class="game-container">
-        <div class="game-header">
-            <h1>Qüllə Müdafiəsi</h1>
-            <div class="game-stats">
-                <div class="stat">
-                    <span class="stat-label">Sağlamlıq:</span>
-                    <span id="health">100</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Pul:</span>
-                    <span id="money">500</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Dalğa:</span>
-                    <span id="wave">1</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Xal:</span>
-                    <span id="score">0</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Səviyyə:</span>
-                    <span id="level">1</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">💎:</span>
-                    <span id="diamonds">0</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">⭐:</span>
-                    <span id="stars">0</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Düşmənlər:</span>
-                    <span id="enemyCount">0</span>
-                </div>
-                <div class="stat toggle-shop-stat" title="Qüllə Mağazası">
-                    <button id="toggleShop" class="toggle-shop">🏪</button>
-                </div>
+    <div class="home-header">
+        <h1>🎮 Oyunlar</h1>
+        <div class="profile-section">
+            <div class="profile-info">
+                <span class="profile-icon">👤</span>
+                <span id="profileUsername" class="profile-username">İstifadəçi</span>
             </div>
-            <div class="profile-section">
-                <div class="profile-info">
-                    <span class="profile-icon">👤</span>
-                    <span id="profileUsername" class="profile-username">İstifadəçi</span>
-                </div>
-                <div class="profile-dropdown" id="profileDropdown">
-                    <div class="profile-dropdown-content">
-                        <div class="profile-menu-item" id="editProfileBtn">
-                            <span>Profili Düzəlt</span>
-                        </div>
-                        <div class="profile-menu-item" id="logoutBtn">
-                            <span>Çıxış</span>
-                        </div>
+            <div class="profile-dropdown" id="profileDropdown">
+                <div class="profile-dropdown-content">
+                    <div class="profile-menu-item" id="editProfileBtn">
+                        <span>Profili Düzəlt</span>
+                    </div>
+                    <div class="profile-menu-item" id="logoutBtn">
+                        <span>Çıxış</span>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
+    
+    <div class="games-container">
+        <h2 class="games-title">Oyunlarımızı Seçin</h2>
         
-        <div class="game-area">
-            <div class="board-wrap">
-                <canvas id="gameCanvas" width="1280" height="720"></canvas>
-                <div id="labelW" class="size-label size-label-w">u: 1280</div>
-                <div id="labelH" class="size-label size-label-h">h: 720</div>
+        <div class="games-grid">
+            <!-- Neon Defender -->
+            <div class="game-card" data-game="neon-defender">
+                <div class="game-card-icon">🛡️</div>
+                <div class="game-card-title">Neon Defender</div>
+                <div class="game-card-description">
+                    Qüllələrlə müdafiə oyunu. Düşmən dalğalarını dayandırın və qüllələr qurun.
+                </div>
+                <ul class="game-card-features">
+                    <li>Çoxsaylı qüllə tipləri</li>
+                    <li>Dalğa sistemi</li>
+                    <li>Yüksəltmə sistemi</li>
+                    <li>Xal və mükafatlar</li>
+                </ul>
             </div>
             
-            <div class="tower-shop hidden">
-                <div class="shop-tabs">
-                    <button class="shop-tab active" data-tab="tab-controls">İdarətmələr</button>
-                    <button class="shop-tab" data-tab="tab-towers">Qüllələr</button>
-                    <button class="shop-tab" data-tab="tab-special">Xüsusi</button>
+            <!-- 3 Taş Oyunu -->
+            <div class="game-card" data-game="three-stones">
+                <div class="game-card-icon">🎯</div>
+                <div class="game-card-title">3 Taş Oyunu</div>
+                <div class="game-card-description">
+                    İki oyunçulu strategiya oyunu. 3 taşınızı rəqib tərəfdəki 3 nöqtəyə keçirin.
                 </div>
-                
-                <div class="shop-content-wrapper">
-                <div class="shop-tab-content active" id="tab-controls">
-                    <div class="game-controls" style="display: flex; flex-direction: column; gap: 12px; padding: 15px;">
-                        <button id="startWave" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Dalğanı Başlat</button>
-                        <div class="auto-start-container" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-                            <input type="checkbox" id="autoStart" />
-                            <label for="autoStart" style="color: #fff; cursor: pointer;">Avtomatik Başlat</label>
-                        </div>
-                        <button id="restartGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px;">Yenidən başlat</button>
-                        <button id="pauseGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #ff9800, #f57c00);">⏸️ Fasilə</button>
-                        <button id="resumeGame" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049); display: none;">▶️ Davam</button>
-                        <button id="saveGameState" class="game-controls" style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(45deg, #4CAF50, #45a049);">💾 Oyunu Qeyd Et</button>
-                        
-                        <!-- Avtomatik Can Yeniləmə Bölməsi -->
-                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
-                            <div style="display: flex; flex-direction: column; gap: 8px;">
-                                <button id="globalAutoHealToggle" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4a90e2, #357abd);">🔄 Avto Can Yeniləmə</button>
-                                
-                                <!-- Qüllə Seçim Paneli (gizli) -->
-                                <div id="globalAutoHealPanel" style="display: none; flex-direction: column; gap: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; max-height: 300px; overflow-y: auto;">
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                        <input type="number" id="globalAutoHealThreshold" min="1" value="5" style="width: 70px; padding: 6px; background: rgba(0,0,0,0.5); border: 1px solid #00bcd4; border-radius: 4px; color: #fff; font-size: 12px;" />
-                                        <label style="color: #fff; font-size: 12px;">Can Dəyəri (1-100)</label>
-                                    </div>
-                                    <div id="globalAutoHealTowersList" style="display: flex; flex-direction: column; gap: 6px;">
-                                        <!-- Qüllələr buraya dinamik olaraq əlavə olunacaq -->
-                                    </div>
-                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                                        <button id="globalAutoHealSelectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Hamısını Seç</button>
-                                        <button id="globalAutoHealDeselectAll" style="flex: 1; padding: 8px; background: rgba(74, 144, 226, 0.3); border: 1px solid #4a90e2; border-radius: 4px; color: #fff; cursor: pointer; font-size: 11px;">Seçimi Ləğv Et</button>
-                                    </div>
-                                    <button id="globalAutoHealConfirm" class="game-controls" style="width: 100%; padding: 10px; font-size: 13px; background: linear-gradient(45deg, #4CAF50, #45a049);">✓ Təsdiqlə və Aktiv Et</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="speed-controls" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-                            <label style="color: #fff; font-size: 13px;">Sürət:</label>
-                            <button id="speed1" class="speed-btn" style="flex: 1; padding: 8px;">1x</button>
-                            <button id="speed2" class="speed-btn" style="flex: 1; padding: 8px;">2x</button>
-                            <button id="speed3" class="speed-btn" style="flex: 1; padding: 8px;">3x</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="shop-tab-content" id="tab-towers">
-                    <div class="tower-options" style="padding: 20px;">
-                        <div class="tower-option" data-tower="basic" data-damage="20" data-firerate="1000" data-cost="$50">
-                            <div class="tower-icon basic-tower"></div>
-                            <div class="tower-info">
-                                <div class="tower-name">Sadə Qüllə</div>
-                                <div class="tower-cost">$50</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Sadə Qüllə</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 20</div>
-                                    <div>🔥 Atəş sürəti: 1.0s</div>
-                                    <div>💰 Qiymət: $50</div>
-                                </div>
-                                <div class="tooltip-desc">Balanslı zərər və atəş sürəti ilə orta səviyyəli qüllə</div>
-                            </div>
-                        </div>
-                        <div class="tower-option" data-tower="rapid" data-damage="10" data-firerate="300" data-cost="$100">
-                            <div class="tower-icon rapid-tower"></div>
-                            <div class="tower-info">
-                                <div class="tower-name">Sürətli Qüllə</div>
-                                <div class="tower-cost">$100</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Sürətli Qüllə</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 10</div>
-                                    <div>🔥 Atəş sürəti: 0.3s</div>
-                                    <div>💰 Qiymət: $100</div>
-                                </div>
-                                <div class="tooltip-desc">Çox sürətli atəş açır, az zərər verir - çox sayda düşmən üçün ideal</div>
-                            </div>
-                        </div>
-                        <div class="tower-option" data-tower="heavy" data-damage="50" data-firerate="2000" data-cost="$200">
-                            <div class="tower-icon heavy-tower"></div>
-                            <div class="tower-info">
-                                <div class="tower-name">Ağır Qüllə</div>
-                                <div class="tower-cost">$200</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Ağır Qüllə</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 50</div>
-                                    <div>🔥 Atəş sürəti: 2.0s</div>
-                                    <div>💰 Qiymət: $200</div>
-                                </div>
-                                <div class="tooltip-desc">Çox güclü zərər verir, lakin yavaş atəş açır - güclü düşmənlər üçün</div>
-                            </div>
-                        </div>
-                        <div class="tower-option" data-tower="ice" data-star-cost="1" data-damage="15" data-firerate="800" data-cost="⭐1">
-                            <div class="tower-icon ice-tower"></div>
-                            <div class="tower-star-cost">⭐1</div>
-                            <div class="tower-info">
-                                <div class="tower-name">Buz Qülləsi</div>
-                                <div class="tower-cost">⭐1</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Buz Qülləsi</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 15</div>
-                                    <div>🔥 Atəş sürəti: 0.8s</div>
-                                    <div>💰 Qiymət: ⭐1</div>
-                                </div>
-                                <div class="tooltip-desc">Buz mərmisi düşmənləri dondurur və yavaşladır</div>
-                            </div>
-                        </div>
-                        <div class="tower-option" data-tower="flame" data-star-cost="2" data-damage="25" data-firerate="1000" data-cost="⭐2">
-                            <div class="tower-icon flame-tower"></div>
-                            <div class="tower-star-cost">⭐2</div>
-                            <div class="tower-info">
-                                <div class="tower-name">Alov Qülləsi</div>
-                                <div class="tower-cost">⭐2</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Alov Qülləsi</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 25</div>
-                                    <div>🔥 Atəş sürəti: 1.0s</div>
-                                    <div>💰 Qiymət: ⭐2</div>
-                                </div>
-                                <div class="tooltip-desc">Alov mərmisi düşmənləri yandırır - zamanla zərər verir</div>
-                            </div>
-                        </div>
-                        <div class="tower-option" data-tower="laser" data-star-cost="3" data-damage="30" data-firerate="500" data-cost="⭐3">
-                            <div class="tower-icon laser-tower"></div>
-                            <div class="tower-star-cost">⭐3</div>
-                            <div class="tower-info">
-                                <div class="tower-name">Lazer Qülləsi</div>
-                                <div class="tower-cost">⭐3</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Lazer Qülləsi</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 30</div>
-                                    <div>🔥 Atəş sürəti: 0.5s</div>
-                                    <div>💰 Qiymət: ⭐3</div>
-                                </div>
-                                <div class="tooltip-desc">Güclü lazer atəşi - yüksək zərər və sürətli atəş kombinasiyası</div>
-                            </div>
-                        </div>
-                        <div class="tower-option" data-tower="plasma" data-star-cost="4" data-damage="60" data-firerate="1500" data-cost="⭐4">
-                            <div class="tower-icon plasma-tower"></div>
-                            <div class="tower-star-cost">⭐4</div>
-                            <div class="tower-info">
-                                <div class="tower-name">Plazma Qülləsi</div>
-                                <div class="tower-cost">⭐4</div>
-                            </div>
-                            <div class="tower-tooltip">
-                                <div class="tooltip-title">Plazma Qülləsi</div>
-                                <div class="tooltip-stats">
-                                    <div>⚔️ Zərər: 60</div>
-                                    <div>🔥 Atəş sürəti: 1.5s</div>
-                                    <div>💰 Qiymət: ⭐4</div>
-                                </div>
-                                <div class="tooltip-desc">Plazma barier yaradır - yoldan keçən düşmənlərə zərər verir</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-
-                <div class="shop-tab-content" id="tab-special">
-                    <div class="shop-placeholder" style="margin-bottom:8px">Oyun Taxtası (ölçü): <span id="boardDims">9×15</span> — 💎 <span id="shopDiamonds">0</span></div>
-                    <div class="tower-options">
-                        <div class="tower-option" style="cursor:default">
-                            <div class="tower-info">
-                                <div class="tower-name">+2 Sətir (yuxarı + aşağı)</div>
-                                <div class="tower-cost">💎<span id="costRows">5</span></div>
-                            </div>
-                            <button id="buyRows" class="game-controls" style="padding:8px 12px">Al</button>
-                        </div>
-                        <div class="tower-option" style="cursor:default">
-                            <div class="tower-info">
-                                <div class="tower-name">+1 Sütun (mərkəzdən sağa)</div>
-                                <div class="tower-cost">💎<span id="costCol">3</span></div>
-                            </div>
-                            <button id="buyCol" class="game-controls" style="padding:8px 12px">Al</button>
-                        </div>
-                    </div>
-                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 8px;">
-                        <div style="margin-bottom: 12px; font-weight: bold; color: #00d4ff; font-size: 14px; text-align: center;">🎁 Hədiyyə Kodu</div>
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
-                            <input type="text" id="giftCodeInput" placeholder="Kodu daxil edin..." 
-                                   style="width: 100%; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 13px; font-family: Arial, sans-serif; box-sizing: border-box;"
-                                   autocomplete="off" spellcheck="false">
-                            <button id="redeemCode" class="game-controls" 
-                                    style="width: 100%; padding: 12px; background: linear-gradient(45deg, #4a90e2, #357abd); border: none; border-radius: 6px; color: #fff; font-weight: bold; cursor: pointer; font-size: 13px;">
-                                Təsdiq Et
-                            </button>
-                        </div>
-                        <div id="giftCodeMessage" style="font-size: 11px; color: #a0a0a0; text-align: center; margin-top: 10px; min-height: 16px; padding: 5px;"></div>
-                    </div>
-                </div>
-                </div>
+                <ul class="game-card-features">
+                    <li>İki oyunçulu oyun</li>
+                    <li>Otaq sistemi</li>
+                    <li>Real-time multiplayer</li>
+                    <li>Strategiya və taktika</li>
+                </ul>
             </div>
-        </div>
-        
-        <div class="game-info">
-            <div class="selected-tower-info" id="selectedTowerInfo" style="display: none;">
-                <h4>Seçilmiş Qüllə</h4>
-                <div id="towerDetails"></div>
-                <button id="upgradeTower">Yüksəlt ($<span id="upgradeCost">0</span>)</button>
-                <button id="sellTower">Sat ($<span id="sellValue">0</span>)</button>
-            </div>
-        </div>
-
-        <!-- Context menu that appears near a clicked tower -->
-        <div id="towerContext" style="display:none; gap:8px; flex-direction:column; background:rgba(10,10,10,0.92); padding:10px; border:1px solid #00bcd4; border-radius:8px;">
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button class="ctx-btn" id="ctxRange">🌀 <span id="ctxRangeVal">0</span> (<span id="ctxRangeUp">0/3</span>) — $<span id="ctxRangeCost">50</span></button>
-                <button class="ctx-btn" id="ctxDamage">💥 <span id="ctxDamageVal">0</span> (<span id="ctxDamageUp">0/3</span>) — $<span id="ctxDamageCost">50</span></button>
-                <button class="ctx-btn" id="ctxRate">⚡ <span id="ctxRateVal">0</span> (<span id="ctxRateUp">0/3</span>) — $<span id="ctxRateCost">50</span></button>
-            </div>
-            <div style="display:flex; gap:8px;">
-                <button class="ctx-btn" id="ctxHeal">🩹 $20</button>
-                <button class="ctx-btn" id="ctxHealthUpgrade">❤️ Can Artır: $50</button>
-            </div>
-            <div style="display:flex; flex-direction:column; gap:4px; padding:6px; background:rgba(255,255,255,0.05); border-radius:4px;">
-                <div style="display:flex; gap:4px; align-items:center;">
-                    <button class="ctx-btn" id="ctxAutoHealToggle" style="flex:1;">🔄 Avto Can: Kapalı</button>
+            
+            <div class="game-card coming-soon">
+                <div class="coming-soon-badge">Tezliklə</div>
+                <div class="game-card-icon">🚀</div>
+                <div class="game-card-title">Yeni Oyun</div>
+                <div class="game-card-description">
+                    Tezliklə yeni oyunlar əlavə olunacaq.
                 </div>
-                <div id="ctxAutoHealSettings" style="display:none; gap:4px; align-items:center; flex-direction:row;">
-                    <input type="number" id="ctxAutoHealThreshold" min="1" value="5" style="width:60px; padding:4px; background:rgba(0,0,0,0.5); border:1px solid #00bcd4; border-radius:4px; color:#fff; font-size:12px;" />
-                    <button class="ctx-btn" id="ctxAutoHealConfirm" style="flex:1; padding:4px; font-size:11px;">✓ Təsdiq</button>
-                </div>
-            </div>
-            <button class="ctx-btn" id="ctxAwaken">🌈 (💎20)</button>
-            <button class="ctx-btn" id="ctxShield">🛡️ (💎50)</button>
-            <div style="display:flex; gap:8px;">
-                <button class="ctx-btn" id="ctxPlasmaActivate" style="display:none;">⚡ Plazma Aktiv</button>
-                <button class="ctx-btn" id="ctxPlasmaDeactivate" style="display:none;">⚡ Plazma Söndür</button>
-            </div>
-            <div style="display:flex; gap:8px;">
-                <button class="ctx-btn" id="ctxSell">🪙</button>
+                <ul class="game-card-features">
+                    <li>Çox tezliklə</li>
+                </ul>
             </div>
         </div>
     </div>
     
     <script>
-        // Check login status - GitHub Pages üçün skip et
+        // Check login status
         (function(){
-            // GitHub Pages üçün login check skip et (backend yoxdur)
             const isGitHubPages = window.location.hostname.includes('github.io');
             if (isGitHubPages) {
                 // GitHub Pages-də backend yoxdur, login check skip
@@ -443,53 +262,88 @@
             }
         })();
         
-        // If dynamic loader failed for any reason, fallback to versioned include
+        // Set username
         (function(){
-            if (!window.__INJECTED_VERSIONED_SCRIPT__) {
-                var v = window.__BUILD_VERSION__ || Date.now().toString();
-                var s = document.createElement('script');
-                s.src = 'assets/game.js?v=' + v;
-                document.body.appendChild(s);
+            const username = localStorage.getItem('towerDefenseUsername') || 'İstifadəçi';
+            const profileUsername = document.getElementById('profileUsername');
+            if (profileUsername) {
+                profileUsername.textContent = username;
             }
         })();
-    </script>
-    <script>
-        // Shop toggle and tabs
+        
+        // Game card click handlers
         (function(){
-            const shop = document.querySelector('.tower-shop');
-            const btn = document.getElementById('toggleShop');
-            if (shop && btn) {
-                // Səhifə yüklənəndə mağaza bağlı olmalıdır (default hidden)
-                // localStorage-dan vəziyyəti yoxla (yoxdursa hidden qal)
-                const savedShopState = localStorage.getItem('towerDefenseShopOpen');
-                if (savedShopState === 'true') {
-                    shop.classList.remove('hidden');
-                } else {
-                    shop.classList.add('hidden');
+            const gameCards = document.querySelectorAll('.game-card');
+            gameCards.forEach(card => {
+                const gameName = card.getAttribute('data-game');
+                if (gameName && !card.classList.contains('coming-soon')) {
+                    card.addEventListener('click', function() {
+                        // Navigate to game page
+                        if (gameName === 'neon-defender') {
+                            window.location.href = '/games/neondefender/index.html';
+                        } else if (gameName === 'three-stones') {
+                            window.location.href = '/games/bilinmez/index.html';
+                        }
+                        // Add more games here as they are added
+                    });
                 }
-                
-                // Toggle düyməsinə klik edildikdə vəziyyəti saxla
-                btn.addEventListener('click', function(){
-                    shop.classList.toggle('hidden');
-                    const isOpen = !shop.classList.contains('hidden');
-                    localStorage.setItem('towerDefenseShopOpen', isOpen.toString());
-                });
-            }
-            const tabs = document.querySelectorAll('.shop-tab');
-            const pages = document.querySelectorAll('.shop-tab-content');
-            tabs.forEach(function(t){
-                t.addEventListener('click', function(){
-                    tabs.forEach(function(x){ x.classList.remove('active'); });
-                    pages.forEach(function(p){ p.classList.remove('active'); });
-                    t.classList.add('active');
-                    var id = t.getAttribute('data-tab');
-                    var page = document.getElementById(id);
-                    if (page) page.classList.add('active');
-                });
             });
         })();
         
-        // Profile section - ayrı faylda (assets/js/profile.js)
+        // Profile dropdown functionality
+        (function(){
+            const profileInfo = document.querySelector('.profile-info');
+            const profileDropdown = document.getElementById('profileDropdown');
+            const editProfileBtn = document.getElementById('editProfileBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            
+            if (profileInfo && profileDropdown) {
+                profileInfo.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    profileDropdown.style.display = profileDropdown.style.display === 'block' ? 'none' : 'block';
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!profileInfo.contains(e.target) && !profileDropdown.contains(e.target)) {
+                        profileDropdown.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Edit profile (placeholder)
+            if (editProfileBtn) {
+                editProfileBtn.addEventListener('click', function() {
+                    // TODO: Implement edit profile functionality
+                    alert('Profil düzəltmə funksiyası tezliklə əlavə olunacaq.');
+                });
+            }
+            
+            // Logout
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', function() {
+                    // Clear all localStorage data
+                    localStorage.clear();
+                    // Redirect to login
+                    window.location.href = 'login.html';
+                });
+            }
+        })();
+        
+        // Load profile script if needed
+        (function(){
+            try {
+                const profileScript = document.createElement('script');
+                profileScript.src = '../assets/components/profile/profile.js?v=' + Date.now();
+                profileScript.defer = true;
+                profileScript.onerror = function() {
+                    console.error('Failed to load profile.js');
+                };
+                document.head.appendChild(profileScript);
+            } catch(e) {
+                console.error('Error loading profile script:', e);
+            }
+        })();
     </script>
 </body>
 </html>

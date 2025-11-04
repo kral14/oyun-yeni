@@ -180,7 +180,7 @@
         
         // Check if already logged in
         if (localStorage.getItem('towerDefenseLoggedIn') === 'true') {
-            window.location.href = 'index.html';
+            window.location.href = 'index.html'; // Redirect to home page
         }
         
         const loginForm = document.getElementById('loginForm');
@@ -238,7 +238,7 @@
                     // Elmas və yıldızları LOCALSTORAGE'A YAZMA - veritabanı ana kaynak
                     // Oyun başlayanda API-dən yüklənəcək (game.js init() fonksiyonu)
                     
-                    // Redirect to game
+                    // Redirect to home page (games list)
                     window.location.href = 'index.html';
                 } else {
                     showError(`❌ ${data.error || 'Xəta baş verdi'}`);

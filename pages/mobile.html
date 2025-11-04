@@ -1294,6 +1294,7 @@
             }
             function maybeRedirect(){
                 if (!isMobileEnv()) {
+                    // Desktop users should go to home page (index.html) to select game
                     window.location.replace('index.html');
                 }
             }

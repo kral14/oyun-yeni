@@ -4,7 +4,36 @@
     position: relative;
     display: flex;
     align-items: center;
+    gap: 10px;
     margin-right: 20px;
+}
+
+.home-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 1.2em;
+    color: #fff;
+    text-decoration: none;
+    min-width: 40px;
+    height: 40px;
+}
+
+.home-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(0, 188, 212, 0.5);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 188, 212, 0.3);
+}
+
+.home-btn:active {
+    transform: translateY(0);
 }
 
 .profile-info {
@@ -52,7 +81,7 @@
     opacity: 0;
     visibility: hidden;
     transition: all 0.3s ease;
-    z-index: 10000;
+    z-index: 100004; /* En yüksek z-index - mağaza paneli (99998) ve tooltip'lerin (100002) üstünde */
 }
 
 .profile-dropdown.active {
@@ -95,6 +124,17 @@
     
     .profile-info {
         padding: 8px 12px;
+    }
+    
+    .home-btn {
+        padding: 8px 10px;
+        min-width: 36px;
+        height: 36px;
+        font-size: 1.1em;
+    }
+    
+    .profile-section {
+        gap: 8px;
     }
 }
 
