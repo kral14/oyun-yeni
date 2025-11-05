@@ -15,6 +15,9 @@ import webbrowser
 import time
 import string
 import random
+import logging
+import traceback
+from logging.handlers import RotatingFileHandler
 
 app = Flask(__name__, 
             static_folder='../assets',
@@ -34,156 +37,98 @@ socketio = SocketIO(
     max_http_buffer_size=1e8
 )
 
-# Game rooms storage (in production, use Redis or database)
-rooms = {}  # {room_code: {name: str, password_hash: str, players: {orange: player_id, blue: player_id}, game_state: {...}, started: bool, created_at: datetime, creator: player_id}}
+# Three Stones game server is now in api/games/three_stones_server.py
 
-# Player sessions
-players = {}  # {player_id: {username, room_code, color}}
+# Setup logging
+def setup_logging():
+    """Setup comprehensive logging system"""
+    log_level = os.environ.get('LOG_LEVEL', 'DEBUG').upper()
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+    
+    # Create logs directory if it doesn't exist
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(getattr(logging, log_level, logging.DEBUG))
+    
+    # Clear existing handlers
+    logger.handlers.clear()
+    
+    # Console handler with colored output
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_format = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_format)
+    logger.addHandler(console_handler)
+    
+    # File handler with rotation
+    log_file = os.path.join(log_dir, 'server.log')
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_format = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d]: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_format)
+    logger.addHandler(file_handler)
+    
+    # Error log file
+    error_log_file = os.path.join(log_dir, 'errors.log')
+    error_handler = RotatingFileHandler(
+        error_log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(file_format)
+    logger.addHandler(error_handler)
+    
+    return logger
 
-def load_room_from_db(room_code):
-    """Load room from database if not in memory"""
-    if room_code in rooms:
-        return rooms[room_code]
-    
-    if not db_pool:
-        return None
-    
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT room_code, room_name, password_hash, creator_socket_id, 
-                   orange_socket_id, blue_socket_id, game_state, started, 
-                   created_at
-            FROM three_stones_rooms
-            WHERE room_code = %s
-        """, (room_code,))
-        result = cursor.fetchone()
-        cursor.close()
-        db_pool.putconn(conn)
-        
-        if result:
-            room_code_db, room_name, password_hash, creator_socket_id, \
-            orange_socket_id, blue_socket_id, game_state_db, started, created_at = result
-            
-            # Parse game_state if it's a string
-            game_state = None
-            if game_state_db:
-                try:
-                    game_state = json.loads(game_state_db) if isinstance(game_state_db, str) else game_state_db
-                except:
-                    game_state = None
-            
-            # Create room structure
-            room = {
-                'name': room_name,
-                'password_hash': password_hash,
-                'players': {},
-                'game_state': game_state,
-                'started': started or False,
-                'created_at': created_at or datetime.now(UTC),
-                'creator': creator_socket_id
-            }
-            
-            # Add players if socket IDs exist (but they might be disconnected)
-            if orange_socket_id:
-                room['players']['orange'] = orange_socket_id
-            if blue_socket_id:
-                room['players']['blue'] = blue_socket_id
-            
-            # Add to memory
-            rooms[room_code] = room
-            print(f"[DB] Room loaded from database: {room_code}")
-            return room
-        
-        return None
-    except Exception as e:
-        print(f"[ERROR] Error loading room from database: {e}")
-        import traceback
-        traceback.print_exc()
-        if conn:
-            db_pool.putconn(conn)
-        return None
+# Initialize logging
+logger = setup_logging()
 
-def load_active_rooms_from_db():
-    """Load all active rooms from database on server start"""
-    if not db_pool:
-        return
-    
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        
-        # Load rooms that are not game_over and created within last 24 hours
-        cursor.execute("""
-            SELECT room_code, room_name, password_hash, creator_socket_id, 
-                   orange_socket_id, blue_socket_id, game_state, started, 
-                   created_at
-            FROM three_stones_rooms
-            WHERE game_over = FALSE 
-            AND created_at > NOW() - INTERVAL '24 hours'
-            ORDER BY created_at DESC
-        """)
-        
-        results = cursor.fetchall()
-        cursor.close()
-        db_pool.putconn(conn)
-        
-        for result in results:
-            room_code_db, room_name, password_hash, creator_socket_id, \
-            orange_socket_id, blue_socket_id, game_state_db, started, created_at = result
-            
-            # Parse game_state if it's a string
-            game_state = None
-            if game_state_db:
-                try:
-                    game_state = json.loads(game_state_db) if isinstance(game_state_db, str) else game_state_db
-                except:
-                    game_state = None
-            
-            # Create room structure
-            room = {
-                'name': room_name,
-                'password_hash': password_hash,
-                'players': {},  # Players will be empty initially (socket IDs might be stale)
-                'game_state': game_state,
-                'started': started or False,
-                'created_at': created_at or datetime.now(UTC),
-                'creator': creator_socket_id
-            }
-            
-            # Add to memory (but don't add players as their socket connections are stale)
-            rooms[room_code_db] = room
-        
-        print(f"[DB] Loaded {len(results)} active rooms from database")
-    except Exception as e:
-        print(f"[ERROR] Error loading active rooms from database: {e}")
-        import traceback
-        traceback.print_exc()
-        if conn:
-            db_pool.putconn(conn)
+# Helper functions for logging
+def log_info(message, extra_data=None):
+    """Log info message with optional extra data"""
+    if extra_data:
+        logger.info(f"{message} | Data: {json.dumps(extra_data, default=str)}")
+    else:
+        logger.info(message)
 
-# Room cleanup timer (check every minute for empty rooms older than 5 minutes)
-def cleanup_empty_rooms():
-    """Remove empty rooms older than 5 minutes"""
-    current_time = datetime.now(UTC)
-    rooms_to_remove = []
-    
-    for room_code, room in rooms.items():
-        if not room.get('players') or len(room.get('players', {})) == 0:
-            created_at = room.get('created_at')
-            if created_at:
-                time_diff = current_time - created_at
-                if time_diff.total_seconds() > 300:  # 5 minutes
-                    rooms_to_remove.append(room_code)
-    
-    for room_code in rooms_to_remove:
-        del rooms[room_code]
-        print(f"[CLEANUP] Removed empty room: {room_code}")
-    
-    # Broadcast lobby update if rooms were removed
-    if rooms_to_remove:
-        socketio.emit('lobby_list', {'rooms': get_lobby_list()})
+def log_debug(message, extra_data=None):
+    """Log debug message with optional extra data"""
+    if extra_data:
+        logger.debug(f"{message} | Data: {json.dumps(extra_data, default=str)}")
+    else:
+        logger.debug(message)
+
+def log_error(message, error=None, extra_data=None):
+    """Log error message with optional exception and extra data"""
+    error_msg = message
+    if error:
+        error_msg += f" | Error: {str(error)}"
+    if extra_data:
+        error_msg += f" | Data: {json.dumps(extra_data, default=str)}"
+    logger.error(error_msg, exc_info=error if error else None)
+
+def log_warning(message, extra_data=None):
+    """Log warning message with optional extra data"""
+    if extra_data:
+        logger.warning(f"{message} | Data: {json.dumps(extra_data, default=str)}")
+    else:
+        logger.warning(message)
+
+# Three Stones game functions moved to api/games/three_stones_server.py
 
 # PostgreSQL connection pool
 db_pool = None
@@ -215,10 +160,10 @@ def init_db_pool():
             port=db_port,
             sslmode='require'
         )
-        print("[OK] Database connection pool created successfully")
+        log_info("Database connection pool created successfully", {'min_conn': 1, 'max_conn': 10, 'host': db_host})
         create_tables()
     except Exception as e:
-        print(f"[ERROR] Error creating connection pool: {e}")
+        log_error("Error creating connection pool", e, {'host': db_host, 'database': db_database})
 
 def create_tables():
     """Create necessary tables if they don't exist"""
@@ -345,9 +290,9 @@ def create_tables():
         conn.commit()
         cursor.close()
         db_pool.putconn(conn)
-        print("[OK] Database tables created successfully")
+        log_info("Database tables created successfully")
     except Exception as e:
-        print(f"[ERROR] Error creating tables: {e}")
+        log_error("Error creating tables", e)
         if conn:
             db_pool.putconn(conn)
 
@@ -1372,864 +1317,26 @@ def serve_page(path):
     
     return jsonify({'error': 'Page not found'}), 404
 
-# WebSocket routes for multiplayer game
-def generate_room_code():
-    """Generate a random 6-character room code"""
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-
-def get_user_id_from_username(username):
-    """Get user ID from username"""
-    if not db_pool or not username:
-        return None
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-        result = cursor.fetchone()
-        cursor.close()
-        db_pool.putconn(conn)
-        return result[0] if result else None
-    except Exception as e:
-        print(f"[ERROR] Error getting user ID: {e}")
-        return None
-
-def save_room_to_db(room_code, room_name, password_hash, creator_socket_id, creator_username):
-    """Save room to database"""
-    if not db_pool:
-        return
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        
-        creator_user_id = get_user_id_from_username(creator_username) if creator_username else None
-        
-        cursor.execute("""
-            INSERT INTO three_stones_rooms 
-            (room_code, room_name, password_hash, creator_user_id, creator_socket_id, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (room_code) DO UPDATE SET
-                room_name = EXCLUDED.room_name,
-                password_hash = EXCLUDED.password_hash,
-                creator_user_id = EXCLUDED.creator_user_id,
-                creator_socket_id = EXCLUDED.creator_socket_id
-        """, (room_code, room_name, password_hash, creator_user_id, creator_socket_id, datetime.now(UTC)))
-        
-        conn.commit()
-        cursor.close()
-        db_pool.putconn(conn)
-        print(f"[DB] Room saved to database: {room_code}")
-    except Exception as e:
-        print(f"[ERROR] Error saving room to database: {e}")
-        if conn:
-            db_pool.putconn(conn)
-
-def update_room_player_in_db(room_code, player_color, player_socket_id, player_username):
-    """Update player in room in database"""
-    if not db_pool:
-        return
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        
-        player_user_id = get_user_id_from_username(player_username) if player_username else None
-        
-        if player_color == 'orange':
-            cursor.execute("""
-                UPDATE three_stones_rooms 
-                SET orange_player_id = %s, orange_socket_id = %s
-                WHERE room_code = %s
-            """, (player_user_id, player_socket_id, room_code))
-        elif player_color == 'blue':
-            cursor.execute("""
-                UPDATE three_stones_rooms 
-                SET blue_player_id = %s, blue_socket_id = %s
-                WHERE room_code = %s
-            """, (player_user_id, player_socket_id, room_code))
-        
-        conn.commit()
-        cursor.close()
-        db_pool.putconn(conn)
-        print(f"[DB] Room player updated: {room_code} - {player_color}")
-    except Exception as e:
-        print(f"[ERROR] Error updating room player: {e}")
-        if conn:
-            db_pool.putconn(conn)
-
-def start_game_in_db(room_code):
-    """Mark game as started in database"""
-    if not db_pool:
-        return
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            UPDATE three_stones_rooms 
-            SET started = TRUE, started_at = %s
-            WHERE room_code = %s
-        """, (datetime.now(UTC), room_code))
-        
-        conn.commit()
-        cursor.close()
-        db_pool.putconn(conn)
-        print(f"[DB] Game started in database: {room_code}")
-    except Exception as e:
-        print(f"[ERROR] Error starting game in database: {e}")
-        if conn:
-            db_pool.putconn(conn)
-
-def delete_room_from_db(room_code):
-    """Delete room from database"""
-    if not db_pool:
-        return
-    try:
-        conn = db_pool.getconn()
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM three_stones_rooms WHERE room_code = %s", (room_code,))
-        
-        conn.commit()
-        cursor.close()
-        db_pool.putconn(conn)
-        print(f"[DB] Room deleted from database: {room_code}")
-    except Exception as e:
-        print(f"[ERROR] Error deleting room from database: {e}")
-        if conn:
-            db_pool.putconn(conn)
-
-def get_lobby_list():
-    """Get list of available rooms for lobby"""
-    lobby_rooms = []
-    current_time = datetime.now(UTC)
-    
-    for room_code, room in rooms.items():
-        # Skip started rooms
-        if room.get('started'):
-            continue
-        
-        # Skip empty rooms older than 5 minutes (they will be cleaned up)
-        if not room.get('players') or len(room.get('players', {})) == 0:
-            created_at = room.get('created_at')
-            if created_at:
-                time_diff = current_time - created_at
-                if time_diff.total_seconds() > 300:  # 5 minutes
-                    continue
-        
-        lobby_rooms.append({
-            'code': room_code,
-            'name': room.get('name', room_code),
-            'players': len(room.get('players', {})),
-            'hasPassword': room.get('password_hash') is not None
-        })
-    return lobby_rooms
-
-@socketio.on('connect')
-def handle_connect():
-    print(f"Client connected: {request.sid}")
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    player_id = request.sid
-    if player_id in players:
-        player_info = players[player_id]
-        room_code = player_info.get('room_code')
-        
-        if room_code and room_code in rooms:
-            room = rooms[room_code]
-            color = player_info.get('color')
-            
-            # Remove player from room
-            if color in room['players']:
-                del room['players'][color]
-            
-            # Get updated players list
-            players_info = {}
-            for remaining_color, pid in room['players'].items():
-                if pid in players:
-                    players_info[remaining_color] = players[pid]['username']
-            
-            # Notify other players with updated player list
-            socketio.emit('player_left', {
-                'color': color,
-                'players': players_info
-            }, room=room_code)
-            
-            # Reset game if started (so room can be reused)
-            if room.get('started'):
-                room['started'] = False
-                room['game_state'] = None
-                # Update database to mark game as not started
-                if db_pool:
-                    try:
-                        conn = db_pool.getconn()
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE three_stones_rooms 
-                            SET started = FALSE, game_state = NULL, started_at = NULL
-                            WHERE room_code = %s
-                        """, (room_code,))
-                        conn.commit()
-                        cursor.close()
-                        db_pool.putconn(conn)
-                    except Exception as e:
-                        print(f"[ERROR] Error resetting game: {e}")
-                        if conn:
-                            db_pool.putconn(conn)
-            
-            # Clean up empty room only if it's empty for more than 5 minutes
-            if not room['players']:
-                created_at = room.get('created_at')
-                if created_at:
-                    current_time = datetime.now(UTC)
-                    time_diff = current_time - created_at
-                    # Only delete if room is empty and older than 5 minutes
-                    if time_diff.total_seconds() > 300:
-                        delete_room_from_db(room_code)
-                        del rooms[room_code]
-                    else:
-                        # Room is empty but not old enough, keep it in lobby
-                        socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-                else:
-                    # No created_at, delete immediately
-                    delete_room_from_db(room_code)
-                    del rooms[room_code]
-            else:
-                # Update room player in database (remove player)
-                if color == 'orange':
-                    if db_pool:
-                        try:
-                            conn = db_pool.getconn()
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                UPDATE three_stones_rooms 
-                                SET orange_player_id = NULL, orange_socket_id = NULL
-                                WHERE room_code = %s
-                            """, (room_code,))
-                            conn.commit()
-                            cursor.close()
-                            db_pool.putconn(conn)
-                        except Exception as e:
-                            print(f"[ERROR] Error updating room player: {e}")
-                            if conn:
-                                db_pool.putconn(conn)
-                elif color == 'blue':
-                    if db_pool:
-                        try:
-                            conn = db_pool.getconn()
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                UPDATE three_stones_rooms 
-                                SET blue_player_id = NULL, blue_socket_id = NULL
-                                WHERE room_code = %s
-                            """, (room_code,))
-                            conn.commit()
-                            cursor.close()
-                            db_pool.putconn(conn)
-                        except Exception as e:
-                            print(f"[ERROR] Error updating room player: {e}")
-                            if conn:
-                                db_pool.putconn(conn)
-                
-                # Broadcast lobby update
-                socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-        
-        del players[player_id]
-    print(f"Client disconnected: {request.sid}")
-
-@socketio.on('leave_room')
-def handle_leave_room(data):
-    player_id = request.sid
-    room_code = data.get('roomCode', '')
-    
-    if player_id in players and room_code in rooms:
-        player_info = players[player_id]
-        room = rooms[room_code]
-        color = player_info.get('color')
-        
-        # Remove player from room
-        if color in room['players']:
-            del room['players'][color]
-        
-        # Get updated players list
-        players_info = {}
-        for remaining_color, pid in room['players'].items():
-            if pid in players:
-                players_info[remaining_color] = players[pid]['username']
-        
-        # Notify other players with updated player list
-        socketio.emit('player_left', {
-            'color': color,
-            'players': players_info
-        }, room=room_code)
-        
-        # Reset game if started (so room can be reused)
-        if room.get('started'):
-            room['started'] = False
-            room['game_state'] = None
-            # Update database to mark game as not started
-            if db_pool:
-                try:
-                    conn = db_pool.getconn()
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE three_stones_rooms 
-                        SET started = FALSE, game_state = NULL, started_at = NULL
-                        WHERE room_code = %s
-                    """, (room_code,))
-                    conn.commit()
-                    cursor.close()
-                    db_pool.putconn(conn)
-                except Exception as e:
-                    print(f"[ERROR] Error resetting game: {e}")
-                    if conn:
-                        db_pool.putconn(conn)
-        
-        # Clean up empty room only if it's empty for more than 5 minutes
-        if not room['players']:
-            created_at = room.get('created_at')
-            if created_at:
-                current_time = datetime.now(UTC)
-                time_diff = current_time - created_at
-                # Only delete if room is empty and older than 5 minutes
-                if time_diff.total_seconds() > 300:
-                    delete_room_from_db(room_code)
-                    del rooms[room_code]
-                else:
-                    # Room is empty but not old enough, keep it in lobby
-                    socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-            else:
-                # No created_at, delete immediately
-                delete_room_from_db(room_code)
-                del rooms[room_code]
-        else:
-            # Update room player in database (remove player)
-            if color == 'orange':
-                if db_pool:
-                    try:
-                        conn = db_pool.getconn()
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE three_stones_rooms 
-                            SET orange_player_id = NULL, orange_socket_id = NULL
-                            WHERE room_code = %s
-                        """, (room_code,))
-                        conn.commit()
-                        cursor.close()
-                        db_pool.putconn(conn)
-                    except Exception as e:
-                        print(f"[ERROR] Error updating room player: {e}")
-                        if conn:
-                            db_pool.putconn(conn)
-            elif color == 'blue':
-                if db_pool:
-                    try:
-                        conn = db_pool.getconn()
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE three_stones_rooms 
-                            SET blue_player_id = NULL, blue_socket_id = NULL
-                            WHERE room_code = %s
-                        """, (room_code,))
-                        conn.commit()
-                        cursor.close()
-                        db_pool.putconn(conn)
-                    except Exception as e:
-                        print(f"[ERROR] Error updating room player: {e}")
-                        if conn:
-                            db_pool.putconn(conn)
-            
-            # Broadcast lobby update
-            socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-        
-        # Remove player from players dict
-        if player_id in players:
-            del players[player_id]
-        
-        # Leave socket room
-        leave_room(room_code)
-        
-        emit('room_left', {'success': True})
-
-@socketio.on('delete_room')
-def handle_delete_room(data):
-    """Allow room creator to delete room"""
-    player_id = request.sid
-    room_code = data.get('roomCode', '')
-    
-    if room_code in rooms:
-        room = rooms[room_code]
-        
-        # Check if player is the creator
-        if room.get('creator') == player_id:
-            # Notify all players in room
-            socketio.emit('room_deleted', {'message': 'Otaq yaradıcı tərəfindən silindi'}, room=room_code)
-            
-            # Remove all players from players dict
-            for color, pid in room.get('players', {}).items():
-                if pid in players:
-                    del players[pid]
-            
-            # Delete room from database
-            delete_room_from_db(room_code)
-            
-            # Delete room
-            del rooms[room_code]
-            
-            # Broadcast lobby update
-            socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-            
-            emit('room_deleted', {'success': True})
-        else:
-            emit('error', {'message': 'Yalnız otaq yaradıcısı otağı silə bilər'})
-
-@socketio.on('create_room')
-def handle_create_room(data):
-    player_id = request.sid
-    username = data.get('username', 'Player')
-    room_name = data.get('roomName', '')
-    password = data.get('password')
-    
-    if not room_name:
-        emit('error', {'message': 'Otaq adı tələb olunur'})
-        return
-    
-    # Generate room code - check both memory and database
-    room_code = generate_room_code()
-    max_attempts = 100
-    attempts = 0
-    while attempts < max_attempts:
-        # Check memory
-        if room_code in rooms:
-            room_code = generate_room_code()
-            attempts += 1
-            continue
-        
-        # Check database
-        if db_pool:
-            try:
-                conn = db_pool.getconn()
-                cursor = conn.cursor()
-                cursor.execute("SELECT room_code FROM three_stones_rooms WHERE room_code = %s", (room_code,))
-                if cursor.fetchone():
-                    cursor.close()
-                    db_pool.putconn(conn)
-                    room_code = generate_room_code()
-                    attempts += 1
-                    continue
-                cursor.close()
-                db_pool.putconn(conn)
-                break
-            except Exception as e:
-                print(f"[ERROR] Error checking room code in database: {e}")
-                if conn:
-                    db_pool.putconn(conn)
-                break
-        else:
-            break
-    
-    if attempts >= max_attempts:
-        emit('error', {'message': 'Otaq kodu yaratmaq mümkün olmadı. Zəhmət olmasa yenidən cəhd edin.'})
-        return
-    
-    # Hash password if provided
-    password_hash = None
-    if password:
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-    
-    # Create room
-    rooms[room_code] = {
-        'name': room_name,
-        'password_hash': password_hash,
-        'players': {'orange': player_id},
-        'game_state': None,
-        'started': False,
-        'created_at': datetime.now(UTC),
-        'creator': player_id  # Track creator for deletion
-    }
-    
-    # Add player
-    players[player_id] = {
-        'username': username,
-        'room_code': room_code,
-        'color': 'orange'
-    }
-    
-    # Join socket room
-    join_room(room_code)
-    
-    # Save room to database
-    save_room_to_db(room_code, room_name, password_hash, player_id, username)
-    update_room_player_in_db(room_code, 'orange', player_id, username)
-    
-    # Send room code to client
-    emit('room_created', {
-        'roomCode': room_code,
-        'playerId': player_id
-    })
-    
-    # Broadcast lobby update to all clients (with small delay to ensure room is in dict)
-    import threading
-    def broadcast_lobby():
-        time.sleep(0.1)
-        socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-    threading.Thread(target=broadcast_lobby, daemon=True).start()
-
-@socketio.on('join_room')
-def handle_join_room(data):
-    player_id = request.sid
-    room_code = data.get('roomCode', '').upper()
-    username = data.get('username', 'Player')
-    password = data.get('password')
-    
-    # Try to load room from database if not in memory
-    if room_code not in rooms:
-        room = load_room_from_db(room_code)
-        if not room:
-            emit('error', {'message': 'Otaq tapılmadı'})
-            return
-    else:
-        room = rooms[room_code]
-    
-    # Check password
-    if room.get('password_hash'):
-        if not password:
-            emit('error', {'message': 'Bu otaq şifrə tələb edir'})
-            return
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        if password_hash != room['password_hash']:
-            emit('error', {'message': 'Yanlış şifrə'})
-            return
-    
-    # Check if room is full
-    if len(room['players']) >= 2:
-        emit('error', {'message': 'Otaq doludur'})
-        return
-    
-    # Check if game already started
-    if room.get('started'):
-        emit('error', {'message': 'Oyun artıq başlayıb'})
-        return
-    
-    # Add player as blue
-    room['players']['blue'] = player_id
-    players[player_id] = {
-        'username': username,
-        'room_code': room_code,
-        'color': 'blue'
-    }
-    
-    # Update room player in database
-    update_room_player_in_db(room_code, 'blue', player_id, username)
-    
-    # Join socket room
-    join_room(room_code)
-    
-    # Notify both players
-    emit('room_joined', {
-        'roomCode': room_code,
-        'playerId': player_id,
-        'playerColor': 'blue'
-    })
-    
-    # Update players list
-    players_info = {}
-    for color, pid in room['players'].items():
-        if pid in players:
-            players_info[color] = players[pid]['username']
-    
-    socketio.emit('player_joined', {'players': players_info}, room=room_code)
-    
-    # Auto-start game when second player joins
-    if len(room['players']) == 2:
-        # Initialize game state
-        room['game_state'] = {
-            'orangeStones': [
-                {'id': 1, 'x': 110, 'y': 100, 'reachedGoal': False},
-                {'id': 2, 'x': 110, 'y': 300, 'reachedGoal': False},
-                {'id': 3, 'x': 110, 'y': 500, 'reachedGoal': False}
-            ],
-            'blueStones': [
-                {'id': 1, 'x': 490, 'y': 100, 'reachedGoal': False},
-                {'id': 2, 'x': 490, 'y': 300, 'reachedGoal': False},
-                {'id': 3, 'x': 490, 'y': 500, 'reachedGoal': False}
-            ],
-            'currentTurn': 'orange',
-            'gameOver': False,
-            'winner': None
-        }
-        room['started'] = True
-        
-        # Mark game as started in database
-        start_game_in_db(room_code)
-        
-        # Notify both players that game has started
-        socketio.emit('game_start', {
-            'gameState': room['game_state']
-        }, room=room_code)
-        
-        print(f"[GAME] Game started automatically in room: {room_code}")
-    
-    # Broadcast lobby update to all clients
-    import threading
-    def broadcast_lobby_update():
-        time.sleep(0.1)
-        socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-    threading.Thread(target=broadcast_lobby_update, daemon=True).start()
-
-@socketio.on('rejoin_room')
-def handle_rejoin_room(data):
-    """Handle reconnection to a room after page refresh"""
-    player_id = request.sid
-    room_code = data.get('roomCode', '').upper()
-    username = data.get('username', 'Player')
-    
-    # Try to load room from database if not in memory
-    if room_code not in rooms:
-        room = load_room_from_db(room_code)
-        if not room:
-            emit('error', {'message': 'Otaq tapılmadı'})
-            return
-    else:
-        room = rooms[room_code]
-    
-    # Check if player was in this room before (check database)
-    player_color = None
-    is_creator = False
-    
-    if db_pool:
-        try:
-            conn = db_pool.getconn()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT orange_player_id, blue_player_id, creator_user_id, game_state, started
-                FROM three_stones_rooms
-                WHERE room_code = %s
-            """, (room_code,))
-            result = cursor.fetchone()
-            cursor.close()
-            db_pool.putconn(conn)
-            
-            if result:
-                orange_player_id, blue_player_id, creator_user_id, db_game_state, started = result
-                
-                # Get user ID from username
-                user_id = None
-                if username:
-                    conn = db_pool.getconn()
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-                    user_result = cursor.fetchone()
-                    if user_result:
-                        user_id = user_result[0]
-                    cursor.close()
-                    db_pool.putconn(conn)
-                
-                # Determine player color based on user ID
-                if user_id:
-                    if orange_player_id == user_id:
-                        player_color = 'orange'
-                    elif blue_player_id == user_id:
-                        player_color = 'blue'
-                    
-                    # Check if user is creator
-                    if creator_user_id == user_id:
-                        is_creator = True
-                
-                # Restore game state from database if available
-                if db_game_state and started:
-                    try:
-                        room['game_state'] = json.loads(db_game_state) if isinstance(db_game_state, str) else db_game_state
-                        room['started'] = started
-                    except:
-                        pass
-        except Exception as e:
-            print(f"[ERROR] Error checking rejoin room: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    # If we couldn't determine color from database, try to find available slot
-    if not player_color:
-        if 'orange' not in room['players']:
-            player_color = 'orange'
-        elif 'blue' not in room['players']:
-            player_color = 'blue'
-        else:
-            emit('error', {'message': 'Otaq doludur'})
-            return
-    
-    # Check if slot is already taken by another active player
-    if player_color in room['players']:
-        existing_player_id = room['players'][player_color]
-        if existing_player_id in players and players[existing_player_id].get('room_code') == room_code:
-            # Another active player is in this slot, can't rejoin
-            emit('error', {'message': 'Otaq doludur'})
-            return
-        # Slot exists but player is disconnected, reclaim it
-        del room['players'][player_color]
-    
-    # Add player back to room
-    room['players'][player_color] = player_id
-    players[player_id] = {
-        'username': username,
-        'room_code': room_code,
-        'color': player_color
-    }
-    
-    # Update room player in database
-    update_room_player_in_db(room_code, player_color, player_id, username)
-    
-    # Join socket room
-    join_room(room_code)
-    
-    # Notify player that they rejoined
-    emit('room_rejoined', {
-        'roomCode': room_code,
-        'playerId': player_id,
-        'playerColor': player_color,
-        'isCreator': is_creator,
-        'gameState': room.get('game_state') if room.get('started') else None
-    })
-    
-    # Update players list
-    players_info = {}
-    for color, pid in room['players'].items():
-        if pid in players:
-            players_info[color] = players[pid]['username']
-    
-    socketio.emit('player_joined', {'players': players_info}, room=room_code)
-    
-    # Broadcast lobby update to all clients
-    import threading
-    def broadcast_lobby_update():
-        time.sleep(0.1)
-        socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-    threading.Thread(target=broadcast_lobby_update, daemon=True).start()
-    
-    print(f"[REJOIN] Player {username} rejoined room {room_code} as {player_color}")
-
-@socketio.on('get_lobby_list')
-def handle_get_lobby_list(data):
-    """Send lobby list to client"""
-    emit('lobby_list', {'rooms': get_lobby_list()})
-
-@socketio.on('start_game')
-def handle_start_game(data):
-    player_id = request.sid
-    
-    if player_id not in players:
-        return
-    
-    room_code = players[player_id]['room_code']
-    
-    if room_code not in rooms:
-        return
-    
-    room = rooms[room_code]
-    
-    # Check if both players are present
-    if len(room['players']) < 2:
-        emit('error', {'message': 'Hələ hər iki oyunçu yoxdur'})
-        return
-    
-    # Initialize game state
-    room['game_state'] = {
-        'orangeStones': [
-            {'id': 'orange-0', 'x': 80, 'y': 80, 'reachedGoal': False},
-            {'id': 'orange-1', 'x': 80, 'y': 300, 'reachedGoal': False},
-            {'id': 'orange-2', 'x': 80, 'y': 520, 'reachedGoal': False}
-        ],
-        'blueStones': [
-            {'id': 'blue-0', 'x': 470, 'y': 80, 'reachedGoal': False},
-            {'id': 'blue-1', 'x': 470, 'y': 300, 'reachedGoal': False},
-            {'id': 'blue-2', 'x': 470, 'y': 520, 'reachedGoal': False}
-        ],
-        'currentTurn': 'orange',
-        'gameOver': False,
-        'winner': None
-    }
-    
-    room['started'] = True
-    
-    # Notify both players
-    socketio.emit('game_start', {
-        'gameState': room['game_state']
-    }, room=room_code)
-
-@socketio.on('make_move')
-def handle_make_move(data):
-    player_id = request.sid
-    
-    if player_id not in players:
-        return
-    
-    player_info = players[player_id]
-    room_code = player_info['room_code']
-    player_color = player_info['color']
-    
-    if room_code not in rooms:
-        return
-    
-    room = rooms[room_code]
-    game_state = room['game_state']
-    
-    if not game_state or game_state['gameOver']:
-        return
-    
-    # Check if it's player's turn
-    if game_state['currentTurn'] != player_color:
-        emit('error', {'message': 'Sizin növbəniz deyil'})
-        return
-    
-    stone_id = data.get('stoneId')
-    new_x = data.get('x')
-    new_y = data.get('y')
-    
-    # Validate and update move
-    stones = game_state['orangeStones'] if player_color == 'orange' else game_state['blueStones']
-    stone = next((s for s in stones if s['id'] == stone_id), None)
-    
-    if not stone:
-        emit('error', {'message': 'Taş tapılmadı'})
-        return
-    
-    # Update stone position
-    stone['x'] = new_x
-    stone['y'] = new_y
-    
-    # Check if stone reached goal
-    if player_color == 'orange':
-        # Orange goal: right side (x > 400)
-        if new_x > 400:
-            stone['reachedGoal'] = True
-    else:
-        # Blue goal: left side (x < 200)
-        if new_x < 200:
-            stone['reachedGoal'] = True
-    
-    # Check win condition
-    stones_reached = sum(1 for s in stones if s['reachedGoal'])
-    if stones_reached >= 3:
-        game_state['gameOver'] = True
-        game_state['winner'] = player_color
-    
-    # Switch turn
-    game_state['currentTurn'] = 'blue' if player_color == 'orange' else 'orange'
-    
-    # Broadcast updated game state
-    socketio.emit('move_made', {
-        'gameState': game_state
-    }, room=room_code)
-    
-    # Check if game over
-    if game_state['gameOver']:
-        socketio.emit('game_over', {
-            'winner': game_state['winner'],
-            'gameState': game_state
-        }, room=room_code)
+# Three Stones game WebSocket handlers moved to api/games/three_stones_server.py
 
 if __name__ == '__main__':
+    # Import Three Stones game server (after logging functions are defined)
+    # Use relative import since we're running from api/ directory
+    import sys
+    import os
+    # Add parent directory to path for imports
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from api.games.three_stones_server import (
+        initialize as init_three_stones,
+        load_active_rooms_from_db,
+        cleanup_empty_rooms
+    )
+    
     init_db_pool()
     if db_pool:
+        # Initialize Three Stones game server
+        init_three_stones(socketio, db_pool, (log_info, log_error, log_debug, log_warning))
+        
         # Load active rooms from database on server start
         load_active_rooms_from_db()
         
@@ -2247,11 +1354,13 @@ if __name__ == '__main__':
         # Production mühitində URL-i environment variable-dan al
         base_url = os.environ.get('BASE_URL', f'http://127.0.0.1:{port}')
         url = f'{base_url}/'
-        print(f"[START] Unified Server starting on port {port}")
-        print(f"[INFO] API: {base_url}/api")
-        print(f"[INFO] Login: {url}")
-        print(f"[INFO] Game: {base_url}/index.html")
-        print(f"[INFO] Assets: {base_url}/assets/")
+        log_info("Unified Server starting", {'port': port, 'base_url': base_url})
+        log_info("Server endpoints", {
+            'api': f'{base_url}/api',
+            'login': url,
+            'game': f'{base_url}/index.html',
+            'assets': f'{base_url}/assets/'
+        })
         
         # Production mühitində browser açma və debug mode
         is_production = os.environ.get('FLASK_ENV') == 'production' or os.environ.get('ENV') == 'production'
@@ -2263,7 +1372,7 @@ if __name__ == '__main__':
             def open_browser():
                 time.sleep(1.5)  # Wait for server to fully start
                 webbrowser.open(url)
-                print(f"[BROWSER] Opening {url} in default browser...")
+                log_info(f"Opening {url} in default browser")
             
             import threading
             browser_thread = threading.Thread(target=open_browser)
@@ -2273,5 +1382,5 @@ if __name__ == '__main__':
         # Use threading mode explicitly to avoid werkzeug compatibility issues
         socketio.run(app, host='0.0.0.0', port=port, debug=debug_mode, allow_unsafe_werkzeug=True, use_reloader=False)
     else:
-        print("[ERROR] Failed to initialize database pool")
+        log_error("Failed to initialize database pool")
 

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>3D Tile Grid</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html,body { margin:0; height:100%; overflow:hidden; background: linear-gradient(135deg, #1a1f25 0%, #0f1419 100%); }
+  canvas { display:block; }
+</style>
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+</head>
+<body>
+<script>
+const GRID = 10;
+const TILE_SIZE = 8;
+const TILE_GAP = 2;
+const BASE_DEPTH = 1;
+const DRIFT_PROBABILITY = 0.35;
+const SPEED_MIN = 0.09, SPEED_MAX = 0.10;
+
+const PALETTE = [
+  '#00bcd4',  // Cyan (ana vurgu rengi)
+  '#0097a7',  // Koyu cyan
+  '#ff9800',  // Turuncu
+  '#2196F3',  // Mavi
+  '#4CAF50'   // Yeşil
+];
+
+const FALLBACK_COLORS = PALETTE;
+const useSolidFallback = false;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 5000);
+const totalSpan = (GRID-1)*(TILE_SIZE+TILE_GAP);
+camera.position.set(0, 0, totalSpan*0.9);
+camera.lookAt(0,0,0);
+
+// Wireframe için ışık gerekmez ama arka plan için ambient light ekleyelim
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+function makeFallbackTexture(size=512, colors=FALLBACK_COLORS, solid=false){
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+
+  if (solid) {
+    ctx.fillStyle = colors[0];
+    ctx.fillRect(0,0,size,size);
+  } else {
+    const s = size/8;
+    for (let y=0;y<8;y++){
+      for (let x=0;x<8;x++){
+        const idx = (x + y) % colors.length;
+        ctx.fillStyle = colors[idx];
+        ctx.fillRect(x*s,y*s,s,s);
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function loadTexture(url, fallbackColors=FALLBACK_COLORS, solid=false){
+  return new Promise((resolve) => {
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      url,
+      tex => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.flipY = false;
+        resolve(tex);
+      },
+      undefined,
+      () => resolve(makeFallbackTexture(512, fallbackColors, solid))
+    );
+  });
+}
+
+const tiles = [];
+const GROUP = new THREE.Group();
+scene.add(GROUP);
+
+function createTile(baseTex, col, row, N){
+  const geom = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, BASE_DEPTH);
+
+  // Neon renk seçimi - paletten renk al
+  const colorIndex = (col + row) % PALETTE.length;
+  const neonColor = PALETTE[colorIndex];
+
+  // Wireframe material - sadece kenarlar
+  const mat = new THREE.MeshBasicMaterial({
+    color: neonColor,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.9
+  });
+
+  const mesh = new THREE.Mesh(geom, mat);
+
+  const spacing = TILE_SIZE + TILE_GAP;
+  const x = (col - (N-1)/2) * spacing;
+  const y = (row - (N-1)/2) * spacing;
+  mesh.position.set(x, y, 0);
+
+  const phase = (x + y) * 0.015;
+  const vel = THREE.MathUtils.randFloat(SPEED_MIN, SPEED_MAX);
+
+  return {
+    mesh,
+    col, row, N,
+    active: false,
+    y: y,
+    deltaY: y,
+    vel,
+    phase,
+    prevS: 0
+  };
+}
+
+(async function init(){
+  // Texture'a gerek yok, wireframe kullanıyoruz
+  const baseTex = null;
+  for (let row=0; row<GRID; row++){
+    for (let col=0; col<GRID; col++){
+      const tile = createTile(baseTex, col, row, GRID);
+      tiles.push(tile);
+      GROUP.add(tile.mesh);
+    }
+  }
+})();
+
+addEventListener('resize', ()=>{
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+const boundsHalf = (GRID-1)*(TILE_SIZE+TILE_GAP)*0.5;
+const minY = -boundsHalf, maxY = boundsHalf;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const t = performance.now()*0.0015;
+
+  const base = 0.6, varScale = 0.4;
+  for (const tile of tiles){
+    if (!tile) continue;
+    const s = base + varScale * Math.max(0, Math.sin(t*5 + tile.phase));
+    tile.mesh.scale.z = s;
+
+    // Neon glow efekti - scale'e göre opacity değiştir
+    const intensity = Math.max(0.6, Math.min(1.0, s));
+    if (tile.mesh.material) {
+      tile.mesh.material.opacity = intensity;
+    }
+
+    const threshold = base + varScale*0.95;
+    if (!tile.active && tile.prevS <= threshold && s > threshold){
+      if (Math.random() < DRIFT_PROBABILITY){
+        tile.active = true;
+        tile.y += TILE_SIZE * 0.75;
+      }
+    }
+    tile.prevS = s;
+  }
+
+  for (const tile of tiles){
+    if (!tile || !tile.active) continue;
+    tile.y += tile.vel * 10;
+    if (tile.y > maxY + TILE_SIZE){
+      tile.y = minY - TILE_SIZE*2;
+    }
+    tile.deltaY += (tile.y - tile.deltaY) * tile.vel;
+    tile.mesh.position.y = tile.deltaY;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('click', ()=>{
+  for (const tile of tiles){
+    if (!tile) continue;
+    tile.active = false;
+    tile.y = tile.mesh.position.y;
+    tile.deltaY = tile.y;
+    tile.prevS = 0;
+  }
+});
+</script>
+</body>
+</html>
