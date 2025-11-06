@@ -34,6 +34,8 @@ class ThreeStonesGame {
         // Blue starts at: 5, 6, 7 (right side)
         // Orange goal: 5, 6, 7 (right side)
         // Blue goal: 10, 9, 8 (left side)
+        // Base board dimensions (desktop)
+        this.baseBoardSize = 600;
         this.boardNodes = {
             '10': { id: '10', x: 80,  y: 80,  neighbors: ['9'] },
             '9': { id: '9', x: 80,  y: 330, neighbors: ['10', '8', '4'] },
@@ -46,6 +48,15 @@ class ThreeStonesGame {
             '3': { id: '3', x: 200, y: 200, neighbors: ['4'] },
             '2': { id: '2', x: 400, y: 460, neighbors: ['1'] }
         };
+        
+        // Calculate responsive node positions
+        this.updateNodePositions();
+        
+        // Update positions on window resize
+        window.addEventListener('resize', () => {
+            this.updateNodePositions();
+            this.updateGameBoard();
+        });
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.lobbyRefreshInterval = null;
@@ -57,6 +68,65 @@ class ThreeStonesGame {
         this.init();
     }
     
+    isMobileDevice() {
+        // Check user agent
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i;
+        
+        // Check screen size
+        const isSmallScreen = window.innerWidth <= 768;
+        
+        // Check touch support
+        const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        // Check if it's a mobile device based on user agent OR (small screen AND touch support)
+        return mobileRegex.test(userAgent) || (isSmallScreen && hasTouchScreen);
+    }
+    
+    /**
+     * Update node positions based on current board size (responsive)
+     */
+    updateNodePositions() {
+        const board = document.getElementById('gameBoard');
+        if (!board) return;
+        
+        const boardRect = board.getBoundingClientRect();
+        const currentBoardSize = boardRect.width || this.baseBoardSize;
+        const scale = currentBoardSize / this.baseBoardSize;
+        
+        // Update all node positions proportionally
+        Object.keys(this.boardNodes).forEach(nodeId => {
+            const node = this.boardNodes[nodeId];
+            // Keep original positions in base format, calculate on the fly
+            node._scale = scale;
+            node._baseX = node.x;
+            node._baseY = node.y;
+        });
+    }
+    
+    /**
+     * Get scaled position for a node
+     */
+    getNodePosition(nodeId) {
+        const node = this.boardNodes[nodeId];
+        if (!node) return { x: 0, y: 0 };
+        
+        const board = document.getElementById('gameBoard');
+        if (!board) {
+            // Fallback to base positions
+            return { x: node.x, y: node.y };
+        }
+        
+        const boardRect = board.getBoundingClientRect();
+        const currentBoardSize = boardRect.width || this.baseBoardSize;
+        const scale = currentBoardSize / this.baseBoardSize;
+        
+        return {
+            x: node.x * scale,
+            y: node.y * scale
+        };
+    }
+    
     init() {
         // Set username
         const username = localStorage.getItem('towerDefenseUsername') || 'İstifadəçi';
@@ -65,10 +135,23 @@ class ThreeStonesGame {
             profileUsername.textContent = username;
         }
         
-        // Button handlers
-        document.getElementById('createRoomBtn').addEventListener('click', () => this.showCreateRoomModal());
-        document.getElementById('refreshLobbyBtn').addEventListener('click', () => this.refreshLobby());
-        document.getElementById('refreshLobbyBtn2').addEventListener('click', () => this.refreshLobby());
+        // Button handlers (check if elements exist before adding listeners)
+        const createRoomBtn = document.getElementById('createRoomBtn');
+        if (createRoomBtn) {
+            createRoomBtn.addEventListener('click', () => this.showCreateRoomModal());
+        }
+        
+        const refreshLobbyBtn = document.getElementById('refreshLobbyBtn');
+        if (refreshLobbyBtn) {
+            refreshLobbyBtn.addEventListener('click', () => this.refreshLobby());
+        }
+        
+        // Search room button (if exists)
+        const searchRoomBtn = document.getElementById('searchRoomBtn');
+        if (searchRoomBtn) {
+            searchRoomBtn.addEventListener('click', () => this.showSearchRoomModal());
+        }
+        
         const backToLobbyBtn = document.getElementById('backToLobbyBtn');
         if (backToLobbyBtn) {
             backToLobbyBtn.addEventListener('click', () => this.backToLobby());
@@ -79,21 +162,63 @@ class ThreeStonesGame {
             deleteRoomBtn.addEventListener('click', () => this.deleteRoom());
         }
         
-        document.getElementById('homeBtn').addEventListener('click', () => {
-            window.location.href = '/index.html';
-        });
+        const homeBtn = document.getElementById('homeBtn');
+        if (homeBtn) {
+            homeBtn.addEventListener('click', () => {
+                // Leave room if in one
+                if (this.roomCode && this.socket && this.socket.connected) {
+                    this.sendMessage('leave_room', { roomCode: this.roomCode });
+                }
+                
+                // Clear saved room code from localStorage
+                localStorage.removeItem('threeStonesRoomCode');
+                
+                // Clear game state
+                this.roomCode = null;
+                this.playerId = null;
+                this.playerColor = null;
+                this.selectedStone = null;
+                this.isCreator = false;
+                this.gameState = {
+                    orangeStones: [],
+                    blueStones: [],
+                    currentTurn: 'orange',
+                    gameOver: false,
+                    winner: null
+                };
+                this.diceResolved = false;
+                
+                // Redirect to home page
+                window.location.href = '/index.html';
+            });
+        }
         
-        // Modal handlers
-        document.getElementById('cancelCreateBtn').addEventListener('click', () => this.closeCreateRoomModal());
-        document.getElementById('cancelJoinBtn').addEventListener('click', () => this.closeJoinRoomModal());
-        document.getElementById('createRoomForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.createRoom();
-        });
-        document.getElementById('joinRoomForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.confirmJoinRoom();
-        });
+        // Modal handlers (check if elements exist before adding listeners)
+        const cancelCreateBtn = document.getElementById('cancelCreateBtn');
+        if (cancelCreateBtn) {
+            cancelCreateBtn.addEventListener('click', () => this.closeCreateRoomModal());
+        }
+        
+        const cancelJoinBtn = document.getElementById('cancelJoinBtn');
+        if (cancelJoinBtn) {
+            cancelJoinBtn.addEventListener('click', () => this.closeJoinRoomModal());
+        }
+        
+        const createRoomForm = document.getElementById('createRoomForm');
+        if (createRoomForm) {
+            createRoomForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.createRoom();
+            });
+        }
+        
+        const joinRoomForm = document.getElementById('joinRoomForm');
+        if (joinRoomForm) {
+            joinRoomForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.confirmJoinRoom();
+            });
+        }
         
         // Initialize WebSocket connection
         this.connectWebSocket();
@@ -252,21 +377,24 @@ class ThreeStonesGame {
                 }, 100);
             }
             
-            // Refresh lobby after connection
-            setTimeout(() => {
-                if (this.socket && this.socket.connected) {
-                    this.refreshLobby();
-                    // Start periodic lobby refresh
-                    if (this.lobbyRefreshInterval) {
-                        clearInterval(this.lobbyRefreshInterval);
-                    }
-                    this.lobbyRefreshInterval = setInterval(() => {
-                        if (this.socket && this.socket.connected) {
-                            this.refreshLobby();
+            // Refresh lobby after connection (only if lobby exists)
+            const lobbyList = document.getElementById('lobbyList');
+            if (lobbyList) {
+                setTimeout(() => {
+                    if (this.socket && this.socket.connected) {
+                        this.refreshLobby();
+                        // Start periodic lobby refresh
+                        if (this.lobbyRefreshInterval) {
+                            clearInterval(this.lobbyRefreshInterval);
                         }
-                    }, 5000);
-                }
-            }, 500);
+                        this.lobbyRefreshInterval = setInterval(() => {
+                            if (this.socket && this.socket.connected) {
+                                this.refreshLobby();
+                            }
+                        }, 5000);
+                    }
+                }, 500);
+            }
         });
         
         this.socket.on('disconnect', () => {
@@ -309,14 +437,53 @@ class ThreeStonesGame {
         
         switch (data.type) {
             case 'room_created':
+                console.log('[DEBUG] room_created event received', {
+                    roomCode: data.roomCode,
+                    playerId: data.playerId,
+                    previousGameState: this.gameState,
+                    previousDiceResolved: this.diceResolved
+                });
+                
                 this.roomCode = data.roomCode;
                 this.playerId = data.playerId;
                 this.playerColor = 'orange';
                 this.isCreator = true; // Mark as creator
+                
+                // Reset game state for new room
+                this.gameState = {
+                    orangeStones: [],
+                    blueStones: [],
+                    currentTurn: 'orange',
+                    gameOver: false,
+                    winner: null
+                };
+                
+                // Reset dice resolved flag for new room
+                this.diceResolved = false;
+                
+                console.log('[DEBUG] room_created: Game state reset', {
+                    newGameState: this.gameState,
+                    diceResolved: this.diceResolved,
+                    status: 'NEW_ROOM - Dice roll will be shown when game starts'
+                });
+                
                 // Save room code to localStorage for reconnection
                 localStorage.setItem('threeStonesRoomCode', this.roomCode);
+                
+                // Redirect to mobile-room.html if on mobile and not already there
+                if (this.isMobileDevice() && !window.location.pathname.includes('mobile-room.html')) {
+                    const currentPath = window.location.pathname;
+                    const newPath = currentPath.replace(/mobile\.html$/, 'mobile-room.html') || 
+                                   currentPath.replace(/\/$/, '/mobile-room.html') ||
+                                   'mobile-room.html';
+                    const queryString = window.location.search;
+                    const hash = window.location.hash;
+                    window.location.replace(newPath + queryString + hash);
+                    return; // Don't continue, we're redirecting
+                }
+                
                 this.updateUI();
-                setTimeout(() => this.refreshLobby(), 500); // Refresh lobby to show new room
+                // Don't refresh lobby - we're transitioning to room waiting screen
                 break;
                 
             case 'room_joined':
@@ -325,8 +492,29 @@ class ThreeStonesGame {
                 this.playerId = data.playerId;
                 this.playerColor = data.playerColor || this.playerColor;
                 this.isCreator = data.isCreator || false;
+                
                 // Save room code to localStorage for reconnection
                 localStorage.setItem('threeStonesRoomCode', this.roomCode);
+                
+                // Redirect to mobile-room.html if on mobile and not already there
+                if (this.isMobileDevice() && !window.location.pathname.includes('mobile-room.html')) {
+                    const currentPath = window.location.pathname;
+                    const newPath = currentPath.replace(/mobile\.html$/, 'mobile-room.html') || 
+                                   currentPath.replace(/\/$/, '/mobile-room.html') ||
+                                   'mobile-room.html';
+                    const queryString = window.location.search;
+                    const hash = window.location.hash;
+                    window.location.replace(newPath + queryString + hash);
+                    return; // Don't continue, we're redirecting
+                }
+                
+                // Hide lobby screen immediately
+                const waitingRoomJoined = document.getElementById('waitingRoom');
+                if (waitingRoomJoined) {
+                    waitingRoomJoined.style.display = 'none';
+                    waitingRoomJoined.classList.remove('visible');
+                    waitingRoomJoined.classList.add('hidden');
+                }
                 
                 // Update navbar
                 const roomInfoEl = document.getElementById('roomInfo');
@@ -336,12 +524,46 @@ class ThreeStonesGame {
                 if (playerStatusEl) playerStatusEl.style.display = 'flex';
                 if (roomCodeEl) roomCodeEl.textContent = this.roomCode;
                 
+                // Update delete button visibility
+                const deleteBtnJoined = document.getElementById('deleteRoomBtn');
+                if (deleteBtnJoined) {
+                    deleteBtnJoined.style.display = this.isCreator ? 'flex' : 'none';
+                }
+                
                 // If game was already started, restore game state
                 if (data.gameState) {
                     this.gameState = data.gameState;
+                    // Check if game has started to set diceResolved
+                    const gameHasStarted = this.hasGameStarted();
+                    this.diceResolved = gameHasStarted; // If game started, dice was resolved
+                    
+                    console.log('[DEBUG] room_joined: Game already started', {
+                        roomCode: this.roomCode,
+                        gameState: this.gameState,
+                        hasGameStarted: gameHasStarted,
+                        diceResolved: this.diceResolved,
+                        status: gameHasStarted ? 'GAME_IN_PROGRESS - No dice roll' : 'NEW_GAME - Dice roll will be shown'
+                    });
+                    
                     this.startGame(true); // Show animation
                 } else {
-                    // Game not started - show animation to room waiting screen
+                    // Game not started - reset game state and diceResolved for new room
+                    this.gameState = {
+                        orangeStones: [],
+                        blueStones: [],
+                        currentTurn: 'orange',
+                        gameOver: false,
+                        winner: null
+                    };
+                    this.diceResolved = false;
+                    
+                    console.log('[DEBUG] room_joined: Game not started yet', {
+                        roomCode: this.roomCode,
+                        gameState: this.gameState,
+                        diceResolved: this.diceResolved,
+                        status: 'WAITING_FOR_PLAYER - Dice roll will be shown when game starts'
+                    });
+                    // Show animation to room waiting screen
                     // But wait a bit for game_start event to arrive (in case second player just joined)
                     // If game_start arrives within 800ms, it will cancel this and show game board
                     // Set a timeout to check if game_start arrived (but don't transition again)
@@ -370,12 +592,33 @@ class ThreeStonesGame {
                 
             case 'room_rejoined':
                 // User rejoined room (after page refresh) - Show animation
+                console.log('[DEBUG] room_rejoined: Event received', {
+                    roomCode: data.roomCode,
+                    playerId: data.playerId,
+                    playerColor: data.playerColor,
+                    isCreator: data.isCreator,
+                    diceResolved: data.diceResolved,
+                    gameState: data.gameState,
+                    hasGameState: !!data.gameState,
+                    orangeStonesCount: data.gameState?.orangeStones?.length || 0,
+                    blueStonesCount: data.gameState?.blueStones?.length || 0
+                });
+                
                 this.roomCode = data.roomCode;
                 this.playerId = data.playerId;
                 this.playerColor = data.playerColor || this.playerColor;
                 this.isCreator = data.isCreator || false;
                 // Save room code to localStorage for reconnection
                 localStorage.setItem('threeStonesRoomCode', this.roomCode);
+                
+                // Hide lobby screen immediately
+                const waitingRoomRejoin = document.getElementById('waitingRoom');
+                if (waitingRoomRejoin) {
+                    waitingRoomRejoin.style.display = 'none';
+                    waitingRoomRejoin.classList.remove('visible');
+                    waitingRoomRejoin.classList.add('hidden');
+                    console.log('[DEBUG] room_rejoined: Lobby screen hidden');
+                }
                 
                 // Update navbar
                 const roomInfoRejoin = document.getElementById('roomInfo');
@@ -386,21 +629,143 @@ class ThreeStonesGame {
                 if (playerStatusRejoin) playerStatusRejoin.style.display = 'flex';
                 if (roomCodeRejoin) roomCodeRejoin.textContent = this.roomCode;
                 
+                // Update delete button visibility
+                const deleteBtnRejoin = document.getElementById('deleteRoomBtn');
+                if (deleteBtnRejoin) {
+                    deleteBtnRejoin.style.display = this.isCreator ? 'flex' : 'none';
+                }
+                
+                // Restore game state if provided
+                if (data.gameState) {
+                    console.log('[DEBUG] room_rejoined: Restoring game state', {
+                        beforeNormalization: {
+                            orangeStones: data.gameState.orangeStones,
+                            blueStones: data.gameState.blueStones,
+                            currentTurn: data.gameState.currentTurn,
+                            gameOver: data.gameState.gameOver
+                        }
+                    });
+                    this.gameState = data.gameState;
+                    // IMPORTANT: Normalize game state BEFORE checking if game has started
+                    // This ensures hasGameStarted() works correctly with node-based positions
+                    if (this.gameState && this.gameState.orangeStones && this.gameState.blueStones) {
+                        console.log('[DEBUG] room_rejoined: Normalizing game state before checking hasGameStarted');
+                        this.normalizeGameStateToNodes();
+                        console.log('[DEBUG] room_rejoined: After normalization', {
+                            orangeStones: this.gameState.orangeStones,
+                            blueStones: this.gameState.blueStones
+                        });
+                    }
+                } else {
+                    // No game state - reset for new game
+                    console.log('[DEBUG] room_rejoined: No game state, resetting for new game');
+                    this.gameState = {
+                        orangeStones: [],
+                        blueStones: [],
+                        currentTurn: 'orange',
+                        gameOver: false,
+                        winner: null
+                    };
+                }
+                
+                // Check if dice was resolved (from server or by checking game state)
+                console.log('[DEBUG] room_rejoined: Checking diceResolved', {
+                    serverDiceResolved: data.diceResolved,
+                    hasGameState: !!this.gameState,
+                    orangeStonesLength: this.gameState?.orangeStones?.length || 0,
+                    blueStonesLength: this.gameState?.blueStones?.length || 0
+                });
+                
+                // Check if dice was resolved (from server - this is the authoritative source)
+                // If dice is resolved, game has effectively started (even if stones are in initial positions)
+                if (data.diceResolved !== undefined) {
+                    this.diceResolved = data.diceResolved;
+                    console.log('[DEBUG] room_rejoined: Using server diceResolved value', {
+                        diceResolved: this.diceResolved,
+                        fromServer: true
+                    });
+                } else {
+                    // Server didn't send diceResolved, check if game has started
+                    let gameHasStarted = false;
+                    if (this.gameState) {
+                        gameHasStarted = this.hasGameStarted();
+                    }
+                    
+                    if (gameHasStarted) {
+                        // Game has started (stones moved) - dice must be resolved
+                        this.diceResolved = true;
+                        console.log('[DEBUG] room_rejoined: Game has started (stones moved), diceResolved set to true', {
+                            gameHasStarted: gameHasStarted,
+                            diceResolved: this.diceResolved
+                        });
+                    } else if (this.gameState) {
+                        // Game state exists but game hasn't started - dice not resolved yet
+                        this.diceResolved = false;
+                        console.log('[DEBUG] room_rejoined: Game not started, diceResolved set to false', {
+                            gameHasStarted: gameHasStarted,
+                            diceResolved: this.diceResolved
+                        });
+                    } else {
+                        // No game state - dice not resolved yet
+                        this.diceResolved = false;
+                        console.log('[DEBUG] room_rejoined: No game state, diceResolved set to false');
+                    }
+                }
+                
                 // Animation is already running (started in init() or connectWebSocket())
                 // Just complete the transition to target screen
-                // If game was already started, restore game state
-                if (data.gameState) {
-                    this.gameState = data.gameState;
-                    // Complete transition to game board (animation already running)
+                // Decision logic:
+                // 1. If dice is resolved (from server), show game board (game has effectively started)
+                // 2. If game has started (stones moved), show game board
+                // 3. If game state exists but dice not resolved, show game board with dice modal
+                // 4. Otherwise, show room waiting screen
+                const gameHasStartedCheck = this.gameState && this.hasGameStarted();
+                const shouldShowGameBoard = this.diceResolved || gameHasStartedCheck || (this.gameState && !this.diceResolved);
+                
+                console.log('[DEBUG] room_rejoined: Deciding screen transition', {
+                    hasGameState: !!this.gameState,
+                    gameHasStarted: gameHasStartedCheck,
+                    diceResolved: this.diceResolved,
+                    orangeStonesLength: this.gameState?.orangeStones?.length || 0,
+                    blueStonesLength: this.gameState?.blueStones?.length || 0,
+                    shouldShowGameBoard: shouldShowGameBoard,
+                    willShowGameBoard: shouldShowGameBoard,
+                    willShowRoomWaiting: !shouldShowGameBoard
+                });
+                
+                if (shouldShowGameBoard) {
+                    // Show game board (dice resolved OR game started OR both players joined)
+                    if (this.diceResolved || gameHasStartedCheck) {
+                        console.log('[DEBUG] room_rejoined: Transitioning to game board (dice resolved or game started)', {
+                            diceResolved: this.diceResolved,
+                            gameHasStarted: gameHasStartedCheck
+                        });
+                    } else {
+                        console.log('[DEBUG] room_rejoined: Transitioning to game board (dice not resolved, will show dice modal)');
+                    }
                     this.completeTransitionToScreen('gameBoardContainer', () => {
                         this.initializeGameBoard();
                     });
                 } else {
-                    // Game not started, complete transition to room waiting screen
+                    // Game not started and dice not resolved, show room waiting screen
+                    console.log('[DEBUG] room_rejoined: Transitioning to room waiting screen');
+                    
+                    // Update room waiting screen immediately (before transition)
+                    const roomWaitingCodeRejoin = document.getElementById('roomWaitingCode');
+                    if (roomWaitingCodeRejoin) {
+                        roomWaitingCodeRejoin.textContent = this.roomCode;
+                        console.log('[DEBUG] room_rejoined: Room code set to', this.roomCode);
+                    }
+                    
+                    // Update players on room waiting screen
+                    this.updateRoomWaitingScreen(data.players || {});
+                    
                     this.completeTransitionToScreen('roomWaitingScreen', () => {
-                        const roomWaitingCodeRejoin = document.getElementById('roomWaitingCode');
-                        if (roomWaitingCodeRejoin) {
-                            roomWaitingCodeRejoin.textContent = this.roomCode;
+                        // Ensure room code is set after transition
+                        const roomWaitingCodeAfter = document.getElementById('roomWaitingCode');
+                        if (roomWaitingCodeAfter && (!roomWaitingCodeAfter.textContent || roomWaitingCodeAfter.textContent === '-')) {
+                            roomWaitingCodeAfter.textContent = this.roomCode;
+                            console.log('[DEBUG] room_rejoined: Room code set in callback', this.roomCode);
                         }
                     });
                 }
@@ -408,7 +773,78 @@ class ThreeStonesGame {
                 
             case 'player_joined':
                 // Update players without animation - this is server notification, not screen transition
+                console.log('[DEBUG] player_joined: Event received', {
+                    roomCode: data.roomCode || this.roomCode,
+                    players: data.players,
+                    gameState: data.gameState,
+                    diceResolved: data.diceResolved,
+                    hasGameState: !!data.gameState,
+                    orangeStonesCount: data.gameState?.orangeStones?.length || 0,
+                    blueStonesCount: data.gameState?.blueStones?.length || 0,
+                    currentGameState: this.gameState,
+                    currentDiceResolved: this.diceResolved
+                });
+                
                 this.updatePlayers(data.players);
+                
+                // If game was over (previous player left) and now both players are present,
+                // reset game state and prepare for new game with dice roll
+                const players = data.players || {};
+                console.log('[DEBUG] player_joined: Processing event', {
+                    roomCode: this.roomCode,
+                    players: players,
+                    gameState: this.gameState,
+                    gameOver: this.gameState?.gameOver,
+                    diceResolved: this.diceResolved,
+                    serverDiceResolved: data.diceResolved
+                });
+                
+                // If we're still on lobby screen and have a room code, transition to room waiting screen
+                const waitingRoom = document.getElementById('waitingRoom');
+                if (waitingRoom && waitingRoom.style.display !== 'none' && this.roomCode) {
+                    // We're on lobby but have joined a room, transition to room waiting screen
+                    console.log('[DEBUG] player_joined: Transitioning from lobby to room waiting screen');
+                    // Hide lobby screen immediately
+                    waitingRoom.style.display = 'none';
+                    waitingRoom.classList.remove('visible');
+                    waitingRoom.classList.add('hidden');
+                    this.transitionToScreen('roomWaitingScreen', () => {
+                        const roomWaitingCodeEl = document.getElementById('roomWaitingCode');
+                        if (roomWaitingCodeEl) roomWaitingCodeEl.textContent = this.roomCode;
+                    });
+                }
+                
+                if (this.gameState && this.gameState.gameOver === true && players.orange && players.blue) {
+                    console.log('[DEBUG] player_joined: Game was over, resetting for new game', {
+                        previousGameState: this.gameState,
+                        players: players
+                    });
+                    
+                    // Reset game state for new game
+                    this.gameState = {
+                        orangeStones: [],
+                        blueStones: [],
+                        currentTurn: 'orange',
+                        gameOver: false,
+                        winner: null
+                    };
+                    // Dice will be rolled when game starts
+                    this.diceResolved = false;
+                    
+                    console.log('[DEBUG] player_joined: Game state reset for new game', {
+                        newGameState: this.gameState,
+                        diceResolved: this.diceResolved,
+                        status: 'GAME_OVER_RESET - Dice roll will be shown when game starts'
+                    });
+                } else {
+                    console.log('[DEBUG] player_joined: No reset needed', {
+                        hasGameState: !!this.gameState,
+                        gameOver: this.gameState?.gameOver,
+                        bothPlayersPresent: !!(players.orange && players.blue),
+                        status: 'NO_RESET_NEEDED'
+                    });
+                }
+                
                 // Don't show animation - only show when user's own screen changes
                 break;
                 
@@ -422,11 +858,21 @@ class ThreeStonesGame {
                 // Immediately hide navbar elements (room code and player names)
                 const roomInfoNav = document.getElementById('roomInfo');
                 const playerStatusNav = document.getElementById('playerStatus');
+                const roomCodeNav = document.getElementById('roomCode');
                 const playerOrangeNameNav = document.getElementById('playerOrangeName');
                 const playerBlueNameNav = document.getElementById('playerBlueName');
                 
-                if (roomInfoNav) roomInfoNav.style.display = 'none';
-                if (playerStatusNav) playerStatusNav.style.display = 'none';
+                if (roomInfoNav) {
+                    roomInfoNav.style.display = 'none';
+                    roomInfoNav.classList.remove('visible');
+                    roomInfoNav.classList.add('hidden');
+                }
+                if (playerStatusNav) {
+                    playerStatusNav.style.display = 'none';
+                    playerStatusNav.classList.remove('visible');
+                    playerStatusNav.classList.add('hidden');
+                }
+                if (roomCodeNav) roomCodeNav.textContent = '-';
                 if (playerOrangeNameNav) playerOrangeNameNav.textContent = '-';
                 if (playerBlueNameNav) playerBlueNameNav.textContent = '-';
                 
@@ -459,7 +905,7 @@ class ThreeStonesGame {
             case 'game_start':
                 // Game started by server - update without animation
                 // Animation should only show on user-initiated screen changes
-                console.log('game_start event received', data);
+                console.log('[DEBUG] game_start event received', data);
                 
                 if (data.gameState) {
                     this.gameState = data.gameState;
@@ -467,6 +913,30 @@ class ThreeStonesGame {
                     // Handle both camelCase and snake_case
                     this.gameState = data.game_state;
                 }
+                
+                // IMPORTANT: Normalize game state BEFORE checking if game has started
+                // This ensures hasGameStarted() works correctly with node-based positions
+                if (this.gameState && this.gameState.orangeStones && this.gameState.blueStones) {
+                    console.log('[DEBUG] game_start: Normalizing game state before checking hasGameStarted');
+                    this.normalizeGameStateToNodes();
+                }
+                
+                // Check if this is a new game after game over (previous player left)
+                // If game state shows stones in initial positions, dice needs to be rolled
+                // If game has not started yet (stones in initial positions), dice needs to be rolled
+                // If game has started (stones moved), dice was already resolved
+                // Always check if stones are in initial positions - if yes, dice needs to be rolled
+                const isNewGame = !this.hasGameStarted();
+                this.diceResolved = !isNewGame; // If new game (stones in initial positions), dice not resolved yet
+                
+                console.log('[DEBUG] game_start: Game state updated', {
+                    roomCode: this.roomCode,
+                    gameState: this.gameState,
+                    isNewGame: isNewGame,
+                    hasGameStarted: !isNewGame,
+                    diceResolved: this.diceResolved,
+                    status: isNewGame ? 'NEW_GAME - Dice roll will be shown' : 'GAME_IN_PROGRESS - No dice roll'
+                });
                 
                 console.log('Current gameState:', this.gameState);
                 console.log('Current playerColor:', this.playerColor);
@@ -518,7 +988,58 @@ class ThreeStonesGame {
                 break;
                 
             case 'game_state':
+                console.log('[DEBUG] game_state event received', {
+                    roomCode: this.roomCode,
+                    previousGameState: this.gameState,
+                    newGameState: data.gameState,
+                    previousDiceResolved: this.diceResolved,
+                    serverDiceResolved: data.diceResolved
+                });
+                
                 this.gameState = data.gameState;
+                
+                // IMPORTANT: Normalize game state BEFORE checking if game has started
+                // This ensures hasGameStarted() works correctly with node-based positions
+                if (this.gameState && this.gameState.orangeStones && this.gameState.blueStones) {
+                    console.log('[DEBUG] game_state: Normalizing game state before checking hasGameStarted');
+                    this.normalizeGameStateToNodes();
+                }
+                
+                // Update diceResolved from server if provided (this is authoritative)
+                if (data.diceResolved !== undefined) {
+                    this.diceResolved = data.diceResolved;
+                    console.log('[DEBUG] game_state: diceResolved updated from server', {
+                        diceResolved: this.diceResolved
+                    });
+                }
+                
+                // Check if game has started (stones moved from initial positions)
+                // If game started, close dice modal and mark dice as resolved
+                const hasStarted = this.hasGameStarted();
+                if (hasStarted && !this.diceResolved) {
+                    console.log('[DEBUG] game_state: Game started, closing dice modal', {
+                        hasStarted: hasStarted,
+                        diceResolved: this.diceResolved,
+                        status: 'GAME_STARTED - Closing dice modal'
+                    });
+                    this.diceResolved = true;
+                    this.closeDiceModal();
+                } else if (this.diceResolved) {
+                    // Dice is resolved, close dice modal if open
+                    console.log('[DEBUG] game_state: Dice resolved, closing dice modal if open', {
+                        hasStarted: hasStarted,
+                        diceResolved: this.diceResolved,
+                        status: 'DICE_RESOLVED - Closing dice modal'
+                    });
+                    this.closeDiceModal();
+                } else {
+                    console.log('[DEBUG] game_state: No dice modal close needed', {
+                        hasStarted: hasStarted,
+                        diceResolved: this.diceResolved,
+                        status: hasStarted ? 'DICE_ALREADY_RESOLVED' : 'GAME_NOT_STARTED'
+                    });
+                }
+                
                 this.updateGameBoard();
                 break;
 
@@ -532,7 +1053,69 @@ class ThreeStonesGame {
                 break;
                 
             case 'move_made':
+                const previousTurn = this.gameState?.currentTurn;
+                const previousGameOver = this.gameState?.gameOver;
+                
+                console.log('[DEBUG] move_made event received', {
+                    roomCode: this.roomCode,
+                    previousGameState: this.gameState,
+                    previousTurn: previousTurn,
+                    newGameState: data.gameState,
+                    newTurn: data.gameState?.currentTurn,
+                    previousDiceResolved: this.diceResolved,
+                    myColor: this.playerColor
+                });
+                
                 this.gameState = data.gameState;
+                
+                // IMPORTANT: Normalize game state BEFORE updating game board
+                // This ensures stones are positioned correctly
+                if (this.gameState && this.gameState.orangeStones && this.gameState.blueStones) {
+                    console.log('[DEBUG] move_made: Normalizing game state before updating board');
+                    this.normalizeGameStateToNodes();
+                }
+                
+                // Log turn change
+                const newTurn = this.gameState.currentTurn;
+                if (previousTurn !== newTurn) {
+                    console.log('[DEBUG] move_made: Turn changed', {
+                        previousTurn: previousTurn,
+                        newTurn: newTurn,
+                        myColor: this.playerColor,
+                        isMyTurn: newTurn === this.playerColor,
+                        status: newTurn === this.playerColor ? 'SIRA SIZDƏ' : 'SIRA RƏQİBDƏ'
+                    });
+                } else {
+                    console.log('[DEBUG] move_made: Turn did not change', {
+                        currentTurn: newTurn,
+                        myColor: this.playerColor,
+                        isMyTurn: newTurn === this.playerColor
+                    });
+                }
+                
+                // Log game over status
+                if (this.gameState.gameOver && !previousGameOver) {
+                    console.log('[DEBUG] move_made: Game over!', {
+                        winner: this.gameState.winner,
+                        gameOver: true
+                    });
+                }
+                
+                // If a move was made, game has started - close dice modal if open
+                if (!this.diceResolved) {
+                    console.log('[DEBUG] move_made: Move made, closing dice modal', {
+                        diceResolved: this.diceResolved,
+                        status: 'MOVE_MADE - Closing dice modal'
+                    });
+                    this.diceResolved = true;
+                    this.closeDiceModal();
+                } else {
+                    console.log('[DEBUG] move_made: Dice already resolved', {
+                        diceResolved: this.diceResolved,
+                        status: 'DICE_ALREADY_RESOLVED'
+                    });
+                }
+                
                 this.updateGameBoard();
                 break;
                 
@@ -560,6 +1143,11 @@ class ThreeStonesGame {
     
     updateLobbyList(rooms) {
         const lobbyList = document.getElementById('lobbyList');
+        if (!lobbyList) {
+            // Lobby list element doesn't exist (e.g., in mobile-room.html)
+            return;
+        }
+        
         lobbyList.innerHTML = '';
         
         if (rooms.length === 0) {
@@ -735,6 +1323,30 @@ class ThreeStonesGame {
             this.sendMessage('leave_room', { roomCode: this.roomCode });
         }
         
+        // Reset game state before creating new room
+        console.log('[DEBUG] createRoom: Resetting game state before creating new room', {
+            previousGameState: this.gameState,
+            previousDiceResolved: this.diceResolved,
+            roomName: roomName
+        });
+        
+        this.gameState = {
+            orangeStones: [],
+            blueStones: [],
+            currentTurn: 'orange',
+            gameOver: false,
+            winner: null
+        };
+        
+        // Reset dice resolved flag for new room
+        this.diceResolved = false;
+        
+        console.log('[DEBUG] createRoom: Game state reset', {
+            newGameState: this.gameState,
+            diceResolved: this.diceResolved,
+            status: 'READY_TO_CREATE_ROOM - Dice roll will be shown when game starts'
+        });
+        
         // Create room
         const username = localStorage.getItem('towerDefenseUsername') || 'İstifadəçi';
         this.sendMessage('create_room', { 
@@ -746,6 +1358,13 @@ class ThreeStonesGame {
     }
     
     refreshLobby() {
+        // Only refresh lobby if lobby list element exists
+        const lobbyList = document.getElementById('lobbyList');
+        if (!lobbyList) {
+            // Lobby list doesn't exist (e.g., in mobile-room.html)
+            return;
+        }
+        
         if (!this.socket || !this.socket.connected) {
             // Try to connect if not already connected
             if (!this.socket || (!this.socket.connecting && !this.socket.connected)) {
@@ -756,6 +1375,61 @@ class ThreeStonesGame {
         }
         
         this.sendMessage('get_lobby_list');
+    }
+    
+    showSearchRoomModal() {
+        // Simple search: prompt for room code
+        const roomCode = prompt('Otaq kodunu daxil edin:');
+        if (!roomCode || !roomCode.trim()) {
+            return;
+        }
+        
+        // Try to find room in current lobby list
+        if (!this.socket || !this.socket.connected) {
+            this.connectWebSocket();
+            setTimeout(() => {
+                this.sendMessage('get_lobby_list');
+                setTimeout(() => {
+                    this.searchRoomByCode(roomCode.trim().toUpperCase());
+                }, 500);
+            }, 500);
+        } else {
+            this.sendMessage('get_lobby_list');
+            setTimeout(() => {
+                this.searchRoomByCode(roomCode.trim().toUpperCase());
+            }, 500);
+        }
+    }
+    
+    searchRoomByCode(roomCode) {
+        // Get all room cards
+        const roomCards = document.querySelectorAll('.lobby-room-card');
+        let found = false;
+        
+        roomCards.forEach(card => {
+            const roomNameElement = card.querySelector('.lobby-room-name');
+            if (roomNameElement) {
+                const roomName = roomNameElement.textContent.trim();
+                // Check if room code matches (case insensitive)
+                if (roomName.toUpperCase().includes(roomCode.toUpperCase()) || 
+                    roomName.toUpperCase() === roomCode.toUpperCase()) {
+                    // Scroll to room card
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Highlight the card
+                    card.style.border = '2px solid #4CAF50';
+                    card.style.boxShadow = '0 0 15px rgba(76, 175, 80, 0.6)';
+                    setTimeout(() => {
+                        card.style.border = '';
+                        card.style.boxShadow = '';
+                    }, 2000);
+                    found = true;
+                }
+            }
+        });
+        
+        if (!found) {
+            alert(`"${roomCode}" kodlu otaq tapılmadı. Zəhmət olmasa otaq kodunu yoxlayın və ya lobini yeniləyin.`);
+        }
     }
     
     showJoinRoomModal(roomCode, roomName, hasPassword) {
@@ -800,6 +1474,30 @@ class ThreeStonesGame {
             this.sendMessage('leave_room', { roomCode: this.roomCode });
         }
         
+        // Reset game state before joining new room
+        console.log('[DEBUG] confirmJoinRoom: Resetting game state before joining room', {
+            selectedRoomCode: this.selectedRoomCode,
+            previousGameState: this.gameState,
+            previousDiceResolved: this.diceResolved
+        });
+        
+        this.gameState = {
+            orangeStones: [],
+            blueStones: [],
+            currentTurn: 'orange',
+            gameOver: false,
+            winner: null
+        };
+        
+        // Reset dice resolved flag for new room
+        this.diceResolved = false;
+        
+        console.log('[DEBUG] confirmJoinRoom: Game state reset', {
+            newGameState: this.gameState,
+            diceResolved: this.diceResolved,
+            status: 'READY_TO_JOIN_ROOM - Dice roll will be shown when game starts'
+        });
+        
         this.connectWebSocket();
         
         setTimeout(() => {
@@ -822,6 +1520,14 @@ class ThreeStonesGame {
         document.getElementById('playerStatus').style.display = 'flex';
         document.getElementById('roomCode').textContent = this.roomCode;
         
+        // Hide lobby screen immediately
+        const waitingRoom = document.getElementById('waitingRoom');
+        if (waitingRoom) {
+            waitingRoom.style.display = 'none';
+            waitingRoom.classList.remove('visible');
+            waitingRoom.classList.add('hidden');
+        }
+        
         // Animate transition to room waiting screen
         this.transitionToScreen('roomWaitingScreen', () => {
             // Update room waiting screen
@@ -829,16 +1535,19 @@ class ThreeStonesGame {
         });
         
         // Show/hide delete button based on creator status
-        const deleteBtn = document.getElementById('deleteRoomBtn');
-        if (deleteBtn) {
-            deleteBtn.style.display = this.isCreator ? 'flex' : 'none';
-        }
+        this.updateDeleteButtonVisibility();
     }
     
     completeTransitionToScreen(targetScreenId, callback = null) {
         // Complete transition when animation is already running (for rejoin scenario)
         const screens = ['waitingRoom', 'roomWaitingScreen', 'gameBoardContainer'];
         const targetScreen = document.getElementById(targetScreenId);
+        
+        console.log('[DEBUG] completeTransitionToScreen: Starting', {
+            targetScreenId: targetScreenId,
+            hasTargetScreen: !!targetScreen,
+            targetScreenElement: targetScreen
+        });
         
         // Wait for animation to complete (800ms), then show target screen
         setTimeout(() => {
@@ -848,6 +1557,15 @@ class ThreeStonesGame {
                 if (screen) {
                     screen.style.display = 'none';
                     screen.classList.remove('hidden', 'visible');
+                    // Force hide
+                    screen.style.opacity = '0';
+                    screen.style.visibility = 'hidden';
+                    console.log('[DEBUG] completeTransitionToScreen: Hiding screen', {
+                        screenId: screenId,
+                        display: screen.style.display,
+                        opacity: screen.style.opacity,
+                        visibility: screen.style.visibility
+                    });
                 }
             });
             
@@ -857,6 +1575,28 @@ class ThreeStonesGame {
                 targetScreen.style.display = displayStyle;
                 targetScreen.classList.remove('hidden');
                 targetScreen.classList.add('visible');
+                // Force visibility
+                targetScreen.style.opacity = '1';
+                targetScreen.style.visibility = 'visible';
+                targetScreen.style.pointerEvents = 'auto';
+                targetScreen.style.transform = 'none';
+                
+                console.log('[DEBUG] completeTransitionToScreen: Showing target screen', {
+                    targetScreenId: targetScreenId,
+                    display: displayStyle,
+                    opacity: targetScreen.style.opacity,
+                    visibility: targetScreen.style.visibility,
+                    computedDisplay: window.getComputedStyle(targetScreen).display,
+                    computedVisibility: window.getComputedStyle(targetScreen).visibility,
+                    computedOpacity: window.getComputedStyle(targetScreen).opacity
+                });
+                
+                // Force a reflow to ensure rendering
+                void targetScreen.offsetWidth;
+            } else {
+                console.error('[DEBUG] completeTransitionToScreen: Target screen not found', {
+                    targetScreenId: targetScreenId
+                });
             }
             
             // Stop animation and hide overlay
@@ -864,6 +1604,8 @@ class ThreeStonesGame {
             const overlay = document.getElementById('screenTransitionOverlay');
             if (overlay) {
                 overlay.classList.remove('active');
+                overlay.style.opacity = '0';
+                overlay.style.visibility = 'hidden';
             }
             
             // Clear transition flag
@@ -871,6 +1613,7 @@ class ThreeStonesGame {
             
             // Call callback if provided
             if (callback) {
+                console.log('[DEBUG] completeTransitionToScreen: Calling callback');
                 callback();
             }
         }, 800); // Animation duration (800ms)
@@ -1236,14 +1979,36 @@ class ThreeStonesGame {
         // Set flag to prevent double animation when room_left event is received
         this.isLeavingRoom = true;
         
+        // Redirect to mobile.html if on mobile and currently on mobile-room.html
+        if (this.isMobileDevice() && window.location.pathname.includes('mobile-room.html')) {
+            const currentPath = window.location.pathname;
+            const newPath = currentPath.replace(/mobile-room\.html$/, 'mobile.html') || 
+                           currentPath.replace(/\/$/, '/mobile.html') ||
+                           'mobile.html';
+            const queryString = window.location.search;
+            const hash = window.location.hash;
+            window.location.replace(newPath + queryString + hash);
+            return; // Don't continue, we're redirecting
+        }
+        
         // Immediately hide navbar elements (room code and player names)
         const roomInfo = document.getElementById('roomInfo');
         const playerStatus = document.getElementById('playerStatus');
+        const roomCode = document.getElementById('roomCode');
         const playerOrangeName = document.getElementById('playerOrangeName');
         const playerBlueName = document.getElementById('playerBlueName');
         
-        if (roomInfo) roomInfo.style.display = 'none';
-        if (playerStatus) playerStatus.style.display = 'none';
+        if (roomInfo) {
+            roomInfo.style.display = 'none';
+            roomInfo.classList.remove('visible');
+            roomInfo.classList.add('hidden');
+        }
+        if (playerStatus) {
+            playerStatus.style.display = 'none';
+            playerStatus.classList.remove('visible');
+            playerStatus.classList.add('hidden');
+        }
+        if (roomCode) roomCode.textContent = '-';
         if (playerOrangeName) playerOrangeName.textContent = '-';
         if (playerBlueName) playerBlueName.textContent = '-';
         
@@ -1285,11 +2050,21 @@ class ThreeStonesGame {
         // Reset UI elements
         const roomInfo = document.getElementById('roomInfo');
         const playerStatus = document.getElementById('playerStatus');
+        const roomCode = document.getElementById('roomCode');
         const playerOrangeName = document.getElementById('playerOrangeName');
         const playerBlueName = document.getElementById('playerBlueName');
         
-        if (roomInfo) roomInfo.style.display = 'none';
-        if (playerStatus) playerStatus.style.display = 'none';
+        if (roomInfo) {
+            roomInfo.style.display = 'none';
+            roomInfo.classList.remove('visible');
+            roomInfo.classList.add('hidden');
+        }
+        if (playerStatus) {
+            playerStatus.style.display = 'none';
+            playerStatus.classList.remove('visible');
+            playerStatus.classList.add('hidden');
+        }
+        if (roomCode) roomCode.textContent = '-';
         if (playerOrangeName) playerOrangeName.textContent = '-';
         if (playerBlueName) playerBlueName.textContent = '-';
         
@@ -1300,11 +2075,40 @@ class ThreeStonesGame {
         this.refreshLobby();
     }
     
+    updateDeleteButtonVisibility() {
+        // Show/hide delete button based on creator status
+        const deleteBtn = document.getElementById('deleteRoomBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = this.isCreator ? 'flex' : 'none';
+        }
+    }
+    
     updateLobbyUI() {
         // Ensure all screens are properly hidden/shown
         const waitingRoom = document.getElementById('waitingRoom');
         const roomWaitingScreen = document.getElementById('roomWaitingScreen');
         const gameBoardContainer = document.getElementById('gameBoardContainer');
+        
+        // Hide navbar room info and player status
+        const roomInfo = document.getElementById('roomInfo');
+        const playerStatus = document.getElementById('playerStatus');
+        const roomCode = document.getElementById('roomCode');
+        const playerOrangeName = document.getElementById('playerOrangeName');
+        const playerBlueName = document.getElementById('playerBlueName');
+        
+        if (roomInfo) {
+            roomInfo.style.display = 'none';
+            roomInfo.classList.remove('visible');
+            roomInfo.classList.add('hidden');
+        }
+        if (playerStatus) {
+            playerStatus.style.display = 'none';
+            playerStatus.classList.remove('visible');
+            playerStatus.classList.add('hidden');
+        }
+        if (roomCode) roomCode.textContent = '-';
+        if (playerOrangeName) playerOrangeName.textContent = '-';
+        if (playerBlueName) playerBlueName.textContent = '-';
         
         if (waitingRoom) {
             waitingRoom.style.display = 'block';
@@ -1422,12 +2226,21 @@ class ThreeStonesGame {
         const leftColor = data.color;
         const players = data.players || {};
         
+        console.log('[DEBUG] handlePlayerLeft called', {
+            leftColor: leftColor,
+            myColor: this.playerColor,
+            players: players,
+            previousGameState: this.gameState,
+            previousDiceResolved: this.diceResolved
+        });
+        
         // Check if we (the current player) are the one who left
         // If we left, we shouldn't process this event (we should have received room_left instead)
         // If our color matches the left color, we are the one who left
         if (this.playerColor === leftColor) {
             // We are the one who left, don't process this event
             // The room_left event or our own leave logic should handle UI updates
+            console.log('[DEBUG] handlePlayerLeft: We are the one who left, ignoring event');
             return;
         }
         
@@ -1435,12 +2248,39 @@ class ThreeStonesGame {
         this.updatePlayers(players);
         this.updateRoomWaitingScreen(players);
         
-        // If game was started, reset game state but stay in room
-        if (this.gameState && this.gameState.gameOver !== true) {
-            // Game was in progress, reset game state but keep player in room
-            // Transition from game to room waiting screen WITHOUT animation
-            // This is server notification, not user-initiated screen change
-            document.getElementById('gameBoardContainer').style.display = 'none';
+        // ALWAYS mark game as over when any player leaves (new or same player)
+        // This ensures the game is reset and ready for a new game
+        if (this.gameState) {
+            const wasGameInProgress = !this.gameState.gameOver;
+            
+            // Mark game as over and reset game state
+            this.gameState = {
+                orangeStones: [],
+                blueStones: [],
+                currentTurn: 'orange',
+                gameOver: true,  // Always mark as game over when player leaves
+                winner: null
+            };
+            
+            // Reset dice resolved flag so new player can roll dice
+            this.diceResolved = false;
+            
+            console.log('[DEBUG] handlePlayerLeft: Game marked as OVER', {
+                wasGameInProgress: wasGameInProgress,
+                newGameState: this.gameState,
+                diceResolved: this.diceResolved,
+                status: 'GAME_OVER - Waiting for new player, dice roll will be shown when game starts'
+            });
+        } else {
+            console.log('[DEBUG] handlePlayerLeft: No game state to reset');
+        }
+        
+        // If game was in progress, transition from game to room waiting screen WITHOUT animation
+        // This is server notification, not user-initiated screen change
+        const gameBoardContainer = document.getElementById('gameBoardContainer');
+        if (gameBoardContainer && gameBoardContainer.style.display !== 'none') {
+            // Game was in progress, hide game board and show room waiting screen
+            gameBoardContainer.style.display = 'none';
             document.getElementById('waitingRoom').style.display = 'none';
             document.getElementById('roomWaitingScreen').style.display = 'flex';
             
@@ -1452,15 +2292,6 @@ class ThreeStonesGame {
             const messageDiv = document.getElementById('roomWaitingMessage');
             messageDiv.textContent = 'Oyunçu otaqdan çıxdı. Oyun dayandırıldı. Yeni oyunçu gözlənir. Yeni oyunçu gəldikdə oyun yenidən başladılacaq.';
             messageDiv.style.display = 'block';
-            
-            // Reset game state
-            this.gameState = {
-                orangeStones: [],
-                blueStones: [],
-                currentTurn: 'orange',
-                gameOver: false,
-                winner: null
-            };
         }
         
         // Refresh lobby to update room status (but don't show lobby)
@@ -1489,13 +2320,31 @@ class ThreeStonesGame {
         const roomWaitingScreen = document.getElementById('roomWaitingScreen');
         const gameBoardContainer = document.getElementById('gameBoardContainer');
         
+        console.log('[DEBUG] showGameBoardDirectly: Starting', {
+            hasWaitingRoom: !!waitingRoom,
+            hasRoomWaitingScreen: !!roomWaitingScreen,
+            hasGameBoardContainer: !!gameBoardContainer
+        });
+        
         if (waitingRoom) {
             waitingRoom.style.display = 'none';
             waitingRoom.classList.remove('hidden', 'visible');
+            waitingRoom.style.opacity = '0';
+            waitingRoom.style.visibility = 'hidden';
+            console.log('[DEBUG] showGameBoardDirectly: Hiding waitingRoom', {
+                display: waitingRoom.style.display,
+                opacity: waitingRoom.style.opacity
+            });
         }
         if (roomWaitingScreen) {
             roomWaitingScreen.style.display = 'none';
             roomWaitingScreen.classList.remove('hidden', 'visible');
+            roomWaitingScreen.style.opacity = '0';
+            roomWaitingScreen.style.visibility = 'hidden';
+            console.log('[DEBUG] showGameBoardDirectly: Hiding roomWaitingScreen', {
+                display: roomWaitingScreen.style.display,
+                opacity: roomWaitingScreen.style.opacity
+            });
         }
         
         // Force show game board
@@ -1505,11 +2354,25 @@ class ThreeStonesGame {
             gameBoardContainer.classList.add('visible');
             // Force visibility
             gameBoardContainer.style.opacity = '1';
+            gameBoardContainer.style.visibility = 'visible';
             gameBoardContainer.style.transform = 'none';
             gameBoardContainer.style.pointerEvents = 'auto';
-            console.log('Game board container displayed and forced visible');
+            
+            console.log('[DEBUG] showGameBoardDirectly: Showing gameBoardContainer', {
+                display: gameBoardContainer.style.display,
+                opacity: gameBoardContainer.style.opacity,
+                visibility: gameBoardContainer.style.visibility,
+                computedDisplay: window.getComputedStyle(gameBoardContainer).display,
+                computedVisibility: window.getComputedStyle(gameBoardContainer).visibility,
+                computedOpacity: window.getComputedStyle(gameBoardContainer).opacity,
+                hasClassVisible: gameBoardContainer.classList.contains('visible'),
+                hasClassHidden: gameBoardContainer.classList.contains('hidden')
+            });
+            
+            // Force a reflow to ensure rendering
+            void gameBoardContainer.offsetWidth;
         } else {
-            console.error('gameBoardContainer element not found!');
+            console.error('[DEBUG] showGameBoardDirectly: gameBoardContainer element not found!');
         }
         
         // Ensure navbar is visible
@@ -1520,7 +2383,7 @@ class ThreeStonesGame {
         
         // Initialize game board (this sets up the board and updates it)
         this.initializeGameBoard();
-        console.log('Game board initialized');
+        console.log('[DEBUG] showGameBoardDirectly: Game board initialized');
         
         // Force a reflow to ensure rendering
         if (gameBoardContainer) {
@@ -1551,10 +2414,17 @@ class ThreeStonesGame {
         // Use game state from server if available, otherwise initialize
         if (this.gameState && this.gameState.orangeStones && this.gameState.blueStones) {
             // Server sent game state, normalize to node-based format if needed
-            console.log('Using game state from server');
-            this.normalizeGameStateToNodes();
+            // Check if already normalized (has nodeId property)
+            const needsNormalization = this.gameState.orangeStones.some(s => !s.nodeId || s.nodeId.match(/^(LT|LM|LB|RT|RM|RB|C_UL|C_DR)$/));
+            if (needsNormalization) {
+                console.log('[DEBUG] initializeGameBoard: Normalizing game state from server');
+                this.normalizeGameStateToNodes();
+            } else {
+                console.log('[DEBUG] initializeGameBoard: Game state already normalized');
+            }
         } else {
             // Initialize stones positions if not provided
+            console.log('[DEBUG] initializeGameBoard: Initializing new stones');
             this.initializeStones();
         }
         
@@ -1562,14 +2432,142 @@ class ThreeStonesGame {
         this.isMyTurn = this.playerColor === this.gameState.currentTurn;
         
         this.updateGameBoard();
-        // Open dice modal for deciding starter if not decided yet
-        if (!this.diceResolved) {
-            this.openDiceModal();
+        
+        // Check if game has started (stones moved from initial positions)
+        // Open dice modal only if:
+        // 1. Dice not resolved yet
+        // 2. Game has not started (stones are still in initial positions)
+        const hasGameStarted = this.hasGameStarted();
+        const isNewGame = !hasGameStarted;
+        
+        // If game has started (stones moved), dice must be resolved (no dice roll needed)
+        if (hasGameStarted) {
+            this.diceResolved = true;
+            console.log('[DEBUG] initializeGameBoard: Game has started (stones moved), forcing diceResolved to true', {
+                hasGameStarted: hasGameStarted,
+                diceResolved: this.diceResolved
+            });
         }
+        
+        // IMPORTANT: If dice is already resolved (from server), don't show dice modal
+        // This means the game has effectively started (dice was rolled, even if stones are in initial positions)
+        const shouldShowDice = !this.diceResolved && isNewGame;
+        
+        console.log('[DEBUG] initializeGameBoard: Checking game state', {
+            roomCode: this.roomCode,
+            gameState: this.gameState,
+            orangeStones: this.gameState?.orangeStones,
+            blueStones: this.gameState?.blueStones,
+            orangeStonesLength: this.gameState?.orangeStones?.length || 0,
+            blueStonesLength: this.gameState?.blueStones?.length || 0,
+            isNewGame: isNewGame,
+            hasGameStarted: hasGameStarted,
+            diceResolved: this.diceResolved,
+            shouldShowDice: shouldShowDice,
+            status: shouldShowDice ? 'SHOWING_DICE_ROLL' : (isNewGame ? 'DICE_ALREADY_RESOLVED' : 'GAME_IN_PROGRESS'),
+            decision: shouldShowDice ? 'WILL_SHOW_DICE' : (isNewGame ? 'DICE_ALREADY_RESOLVED' : 'GAME_IN_PROGRESS')
+        });
+        
+        if (shouldShowDice) {
+            // New game or game after player left - show dice modal
+            console.log('[DEBUG] initializeGameBoard: Opening dice modal', {
+                reason: 'shouldShowDice is true',
+                diceResolved: this.diceResolved,
+                isNewGame: isNewGame,
+                hasGameStarted: hasGameStarted
+            });
+            this.openDiceModal();
+        } else if (hasGameStarted) {
+            // Game already started (stones moved), don't show dice modal
+            console.log('[DEBUG] initializeGameBoard: Game already in progress, dice resolved, NOT showing modal', {
+                reason: 'Game has started (stones moved)',
+                hasGameStarted: hasGameStarted,
+                diceResolved: this.diceResolved
+            });
+        } else {
+            console.log('[DEBUG] initializeGameBoard: Dice already resolved, not showing modal', {
+                reason: 'Dice already resolved but game not started',
+                diceResolved: this.diceResolved,
+                isNewGame: isNewGame,
+                hasGameStarted: hasGameStarted
+            });
+        }
+    }
+    
+    // Check if game has started by comparing current positions with initial positions
+    hasGameStarted() {
+        if (!this.gameState || !this.gameState.orangeStones || !this.gameState.blueStones) {
+            console.log('[DEBUG] hasGameStarted: No game state or stones', {
+                hasGameState: !!this.gameState,
+                hasOrangeStones: !!(this.gameState && this.gameState.orangeStones),
+                hasBlueStones: !!(this.gameState && this.gameState.blueStones),
+                result: false
+            });
+            return false;
+        }
+        
+        // If stones arrays are empty, game has not started
+        if (this.gameState.orangeStones.length === 0 && this.gameState.blueStones.length === 0) {
+            console.log('[DEBUG] hasGameStarted: Empty stone arrays', {
+                orangeStonesLength: this.gameState.orangeStones.length,
+                blueStonesLength: this.gameState.blueStones.length,
+                result: false
+            });
+            return false;
+        }
+        
+        // Initial positions (as sets, order doesn't matter)
+        const initialOrangeNodes = new Set(['10', '9', '8']);
+        const initialBlueNodes = new Set(['5', '6', '7']);
+        
+        // Get current positions
+        const currentOrangeNodes = new Set(this.gameState.orangeStones.map(s => s.nodeId));
+        const currentBlueNodes = new Set(this.gameState.blueStones.map(s => s.nodeId));
+        
+        // If we don't have the expected number of stones, game has not started
+        if (currentOrangeNodes.size !== initialOrangeNodes.size || currentBlueNodes.size !== initialBlueNodes.size) {
+            console.log('[DEBUG] hasGameStarted: Wrong number of stones', {
+                orangeStonesCount: currentOrangeNodes.size,
+                expectedOrangeCount: initialOrangeNodes.size,
+                blueStonesCount: currentBlueNodes.size,
+                expectedBlueCount: initialBlueNodes.size,
+                result: false
+            });
+            return false;
+        }
+        
+        // Check if all orange stones are still in initial positions
+        const orangeInInitial = 
+            currentOrangeNodes.size === initialOrangeNodes.size &&
+            [...currentOrangeNodes].every(nodeId => initialOrangeNodes.has(nodeId));
+        
+        // Check if all blue stones are still in initial positions
+        const blueInInitial = 
+            currentBlueNodes.size === initialBlueNodes.size &&
+            [...currentBlueNodes].every(nodeId => initialBlueNodes.has(nodeId));
+        
+        // Game has started if at least one stone has moved from initial positions
+        const hasStarted = !(orangeInInitial && blueInInitial);
+        
+        console.log('[DEBUG] hasGameStarted: Checking stone positions', {
+            orangeStones: this.gameState.orangeStones.map(s => s.nodeId),
+            blueStones: this.gameState.blueStones.map(s => s.nodeId),
+            orangeInInitial: orangeInInitial,
+            blueInInitial: blueInInitial,
+            hasStarted: hasStarted,
+            status: hasStarted ? 'GAME_STARTED' : 'GAME_NOT_STARTED'
+        });
+        
+        return hasStarted;
     }
 
     // Map legacy x,y stones coming from server to nearest board nodes
     normalizeGameStateToNodes() {
+        console.log('[DEBUG] normalizeGameStateToNodes: Starting normalization', {
+            orangeStones: this.gameState?.orangeStones,
+            blueStones: this.gameState?.blueStones
+        });
+        
         // Map old node IDs to new node IDs
         const nodeIdMap = {
             'LT': '10',  // Left Top -> 10
@@ -1604,12 +2602,23 @@ class ThreeStonesGame {
                 reachedGoal: !!stone.reachedGoal
             };
         };
+        
+        const beforeOrange = this.gameState?.orangeStones ? [...this.gameState.orangeStones] : [];
+        const beforeBlue = this.gameState?.blueStones ? [...this.gameState.blueStones] : [];
+        
         if (Array.isArray(this.gameState.orangeStones)) {
             this.gameState.orangeStones = this.gameState.orangeStones.map(toNode);
         }
         if (Array.isArray(this.gameState.blueStones)) {
             this.gameState.blueStones = this.gameState.blueStones.map(toNode);
         }
+        
+        console.log('[DEBUG] normalizeGameStateToNodes: Normalization complete', {
+            beforeOrange: beforeOrange.map(s => s.nodeId),
+            afterOrange: this.gameState.orangeStones.map(s => s.nodeId),
+            beforeBlue: beforeBlue.map(s => s.nodeId),
+            afterBlue: this.gameState.blueStones.map(s => s.nodeId)
+        });
     }
 
     findNearestNodeId(x, y) {
@@ -1679,8 +2688,17 @@ class ThreeStonesGame {
             const nodeNumber = document.createElement('div');
             nodeNumber.className = 'node-number';
             nodeNumber.textContent = nodeId; // Use node ID directly as label
-            nodeNumber.style.left = `${node.x - 12}px`;
-            nodeNumber.style.top = `${node.y - 12}px`;
+            
+            // Get responsive position
+            const pos = this.getNodePosition(nodeId);
+            
+            // Get node number size for centering (responsive)
+            const boardRect = board.getBoundingClientRect();
+            const boardSize = boardRect.width || this.baseBoardSize;
+            const nodeNumberSize = Math.max(12, boardSize * 0.02); // Responsive node number size
+            
+            nodeNumber.style.left = `${pos.x - nodeNumberSize}px`;
+            nodeNumber.style.top = `${pos.y - nodeNumberSize}px`;
             nodeNumber.setAttribute('data-node', nodeId);
             
             // If node is occupied, make number less visible
@@ -1737,18 +2755,37 @@ class ThreeStonesGame {
         stoneEl.id = stone.id;
         const node = this.boardNodes[stone.nodeId] || null;
         console.log(`[DEBUG] Node for stone.nodeId="${stone.nodeId}":`, node);
+        
+        // Get board element
+        const board = document.getElementById('gameBoard');
+        if (!board) {
+            console.error('[DEBUG] createStoneElement: gameBoard element not found!');
+            return stoneEl;
+        }
+        
         if (node) {
-            stoneEl.style.left = `${node.x - 25}px`;
-            stoneEl.style.top = `${node.y - 25}px`;
-            console.log(`[DEBUG] Stone positioned at node: x=${node.x}, y=${node.y}, left=${stoneEl.style.left}, top=${stoneEl.style.top}`);
+            // Get responsive position
+            const pos = this.getNodePosition(stone.nodeId);
+            
+            // Get stone size for centering (responsive)
+            const boardRect = board.getBoundingClientRect();
+            const boardSize = boardRect.width || this.baseBoardSize;
+            const stoneSize = Math.max(25, boardSize * 0.042); // Responsive stone size (approximately 50px at 600px board)
+            
+            stoneEl.style.left = `${pos.x - stoneSize}px`;
+            stoneEl.style.top = `${pos.y - stoneSize}px`;
+            console.log(`[DEBUG] Stone positioned at node: x=${pos.x}, y=${pos.y}, left=${stoneEl.style.left}, top=${stoneEl.style.top}`);
         } else {
             // Fallback to x,y if node unknown (legacy state)
-            stoneEl.style.left = `${(stone.x || 0) - 25}px`;
-            stoneEl.style.top = `${(stone.y || 0) - 25}px`;
+            const boardRect = board.getBoundingClientRect();
+            const boardSize = boardRect.width || this.baseBoardSize;
+            const stoneSize = Math.max(25, boardSize * 0.042); // Responsive stone size
+            stoneEl.style.left = `${(stone.x || 0) - stoneSize}px`;
+            stoneEl.style.top = `${(stone.y || 0) - stoneSize}px`;
             console.warn(`[DEBUG] Node not found for stone.nodeId="${stone.nodeId}", using fallback position:`, stoneEl.style.left, stoneEl.style.top);
         }
-        // Number label
-        stoneEl.textContent = stone.number || '';
+        // Number label - show nodeId (the position number) instead of stone number
+        stoneEl.textContent = stone.nodeId || stone.number || '';
         stoneEl.style.display = 'flex';
         stoneEl.style.alignItems = 'center';
         stoneEl.style.justifyContent = 'center';
@@ -1801,6 +2838,49 @@ class ThreeStonesGame {
         }
     }
     
+    /**
+     * Check if opponent has any valid moves after a hypothetical move
+     * @param {string} currentColor - Current player color ('orange' or 'blue')
+     * @param {string} fromNodeId - Node ID where stone is moving from
+     * @param {string} toNodeId - Node ID where stone is moving to
+     * @param {Array} orangeStones - Current orange stones
+     * @param {Array} blueStones - Current blue stones
+     * @returns {boolean} - True if opponent has at least one valid move, false otherwise
+     */
+    checkOpponentHasValidMoves(currentColor, fromNodeId, toNodeId, orangeStones, blueStones) {
+        // Create a temporary game state with the move applied
+        const tempOrangeStones = orangeStones.map(s => ({ ...s }));
+        const tempBlueStones = blueStones.map(s => ({ ...s }));
+        
+        // Apply the move to temporary state
+        const tempCollection = currentColor === 'orange' ? tempOrangeStones : tempBlueStones;
+        const stoneIndex = tempCollection.findIndex(s => s.nodeId === fromNodeId);
+        if (stoneIndex !== -1) {
+            tempCollection[stoneIndex] = { ...tempCollection[stoneIndex], nodeId: toNodeId };
+        }
+        
+        // Get opponent's stones
+        const opponentStones = currentColor === 'orange' ? tempBlueStones : tempOrangeStones;
+        
+        // Get all occupied nodes after the move
+        const allTempStones = [...tempOrangeStones, ...tempBlueStones];
+        const occupied = new Set(allTempStones.map(s => s.nodeId));
+        
+        // Check if opponent has at least one stone that can move
+        for (const stone of opponentStones) {
+            const stoneNode = this.boardNodes[stone.nodeId];
+            if (!stoneNode) continue;
+            
+            // Check if this stone has at least one empty neighbor
+            const hasValidMove = stoneNode.neighbors.some(neighborId => !occupied.has(neighborId));
+            if (hasValidMove) {
+                return true; // Opponent has at least one valid move
+            }
+        }
+        
+        return false; // Opponent has no valid moves
+    }
+
     showPossibleMoves(stoneId) {
         // Clear previous hints
         const board = document.getElementById('gameBoard');
@@ -1818,14 +2898,38 @@ class ThreeStonesGame {
         // Neighbor nodes that are empty
         const targets = currentNode.neighbors.filter(n => !occupied.has(n));
         
-        // Render hints
-        targets.forEach(nodeId => {
-            const n = this.boardNodes[nodeId];
+        // Filter out moves that would block opponent completely
+        const currentColor = this.gameState.currentTurn;
+        const validTargets = targets.filter(toNodeId => {
+            const opponentHasMoves = this.checkOpponentHasValidMoves(
+                currentColor,
+                stone.nodeId,
+                toNodeId,
+                this.gameState.orangeStones,
+                this.gameState.blueStones
+            );
+            return opponentHasMoves;
+        });
+        
+        // Render hints only for valid moves
+        validTargets.forEach(nodeId => {
+            const pos = this.getNodePosition(nodeId);
             const hint = document.createElement('div');
             hint.className = 'move-hint';
-            hint.style.left = `${n.x - 14}px`;
-            hint.style.top = `${n.y - 14}px`;
+            
+            // Get hint size for centering (responsive)
+            const boardRect = board.getBoundingClientRect();
+            const boardSize = boardRect.width || this.baseBoardSize;
+            const hintSize = Math.max(14, boardSize * 0.023); // Responsive hint size
+            
+            hint.style.left = `${pos.x - hintSize}px`;
+            hint.style.top = `${pos.y - hintSize}px`;
             hint.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.makeGraphMove(stoneId, nodeId);
+            });
+            hint.addEventListener('touchend', (e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 this.makeGraphMove(stoneId, nodeId);
             });
@@ -1834,22 +2938,34 @@ class ThreeStonesGame {
     }
 
     makeGraphMove(stoneId, toNodeId) {
+        console.log('[DEBUG] makeGraphMove called', {
+            stoneId: stoneId,
+            toNodeId: toNodeId,
+            currentTurn: this.gameState.currentTurn,
+            myColor: this.playerColor,
+            isMyTurn: this.gameState.currentTurn === this.playerColor
+        });
+        
         // Validate move: check if target node is a neighbor and empty
         let collection = this.gameState.currentTurn === 'orange' ? this.gameState.orangeStones : this.gameState.blueStones;
         const idx = collection.findIndex(s => s.id === stoneId);
-        if (idx === -1) return;
+        if (idx === -1) {
+            console.log('[DEBUG] makeGraphMove: Stone not found in collection', { stoneId, currentTurn: this.gameState.currentTurn });
+            return;
+        }
         
         const stone = collection[idx];
-        const currentNode = this.boardNodes[stone.nodeId];
+        const fromNodeId = stone.nodeId; // Save original position BEFORE moving
+        const currentNode = this.boardNodes[fromNodeId];
         
         if (!currentNode) {
-            console.error('Current node not found:', stone.nodeId);
+            console.error('[DEBUG] makeGraphMove: Current node not found:', fromNodeId);
             return;
         }
         
         // Check if target node is a neighbor (1 step away)
         if (!currentNode.neighbors.includes(toNodeId)) {
-            console.error('Target node is not a neighbor:', toNodeId, 'Current:', stone.nodeId, 'Neighbors:', currentNode.neighbors);
+            console.error('[DEBUG] makeGraphMove: Target node is not a neighbor:', toNodeId, 'Current:', fromNodeId, 'Neighbors:', currentNode.neighbors);
             alert('Yalnız qonşu boş nöqtəyə hərəkət edə bilərsiniz');
             return;
         }
@@ -1859,23 +2975,55 @@ class ThreeStonesGame {
         const occupied = new Set(all.map(s => s.nodeId));
         
         if (occupied.has(toNodeId)) {
-            console.error('Target node is occupied:', toNodeId);
+            console.error('[DEBUG] makeGraphMove: Target node is occupied:', toNodeId);
             alert('Bu nöqtə doludur');
             return;
         }
         
         const currentColor = this.gameState.currentTurn;
+        
+        // Check if this move would block opponent completely (stalemate prevention)
+        const opponentHasMoves = this.checkOpponentHasValidMoves(
+            currentColor,
+            fromNodeId,
+            toNodeId,
+            this.gameState.orangeStones,
+            this.gameState.blueStones
+        );
+        
+        if (!opponentHasMoves) {
+            console.error('[DEBUG] makeGraphMove: Move would block opponent completely:', {
+                fromNodeId,
+                toNodeId,
+                currentColor
+            });
+            alert('Bu hərəkət rəqibin bütün yollarını bağlayır. Belə bir hərəkətə icazə verilmir.');
+            return;
+        }
+        const previousTurn = currentColor;
         const goalNodes = currentColor === 'orange' ? ['5', '6', '7'] : ['10', '9', '8'];
         
         // Check if stone reached goal
         const reachedGoal = goalNodes.includes(toNodeId);
         collection[idx] = { ...collection[idx], nodeId: toNodeId, reachedGoal };
         
+        console.log('[DEBUG] makeGraphMove: Stone moved', {
+            stoneId: stoneId,
+            fromNodeId: fromNodeId,
+            toNodeId: toNodeId,
+            reachedGoal: reachedGoal,
+            currentColor: currentColor
+        });
+        
         // Check win condition
         const allStonesReachedGoal = collection.every(stone => stone.reachedGoal);
         if (allStonesReachedGoal) {
             this.gameState.gameOver = true;
             this.gameState.winner = currentColor;
+            console.log('[DEBUG] makeGraphMove: Game over!', {
+                winner: currentColor,
+                gameOver: true
+            });
         }
         
         // Clear selection and hints
@@ -1885,16 +3033,42 @@ class ThreeStonesGame {
         
         // Switch turn only if game is not over
         if (!this.gameState.gameOver) {
-            this.gameState.currentTurn = this.gameState.currentTurn === 'orange' ? 'blue' : 'orange';
+            const newTurn = this.gameState.currentTurn === 'orange' ? 'blue' : 'orange';
+            this.gameState.currentTurn = newTurn;
+            console.log('[DEBUG] makeGraphMove: Turn switched', {
+                previousTurn: previousTurn,
+                newTurn: newTurn,
+                myColor: this.playerColor,
+                isMyTurn: newTurn === this.playerColor,
+                status: newTurn === this.playerColor ? 'SIRA SIZDƏ' : 'SIRA RƏQİBDƏ'
+            });
+        } else {
+            console.log('[DEBUG] makeGraphMove: Game over, turn not switched', {
+                winner: this.gameState.winner
+            });
         }
         
         // Send to server (compatible with legacy x,y move handler)
         const target = this.boardNodes[toNodeId];
+        const fromNode = this.boardNodes[fromNodeId];
+        console.log('[DEBUG] makeGraphMove: Sending move to server', {
+            roomCode: this.roomCode,
+            stoneId: stoneId,
+            fromNodeId: fromNodeId,
+            toNodeId: toNodeId,
+            reachedGoal: reachedGoal,
+            gameOver: this.gameState.gameOver,
+            winner: this.gameState.winner
+        });
+        
         this.sendMessage('make_move', {
             roomCode: this.roomCode,
             stoneId,
+            fromNodeId: fromNodeId, // Send original position to server
             x: target ? target.x : undefined,
             y: target ? target.y : undefined,
+            fromX: fromNode ? fromNode.x : undefined,
+            fromY: fromNode ? fromNode.y : undefined,
             toNodeId,
             reachedGoal,
             gameOver: this.gameState.gameOver,
@@ -2138,6 +3312,9 @@ class ThreeStonesGame {
         const bluePlayer = document.getElementById('playerBlue');
         const status = document.getElementById('gameStatus');
         
+        const previousIsMyTurn = this.isMyTurn;
+        const currentTurn = this.gameState.currentTurn;
+        
         orangePlayer.classList.remove('current-turn');
         bluePlayer.classList.remove('current-turn');
         
@@ -2150,6 +3327,15 @@ class ThreeStonesGame {
         }
         
         this.isMyTurn = this.gameState.currentTurn === this.playerColor;
+        
+        console.log('[DEBUG] updateTurnIndicator: Turn indicator updated', {
+            currentTurn: currentTurn,
+            myColor: this.playerColor,
+            isMyTurn: this.isMyTurn,
+            previousIsMyTurn: previousIsMyTurn,
+            status: this.isMyTurn ? 'SIRA SIZDƏ' : 'SIRA RƏQİBDƏ',
+            statusText: status ? status.textContent : 'N/A'
+        });
     }
     
     showGameOver(winner) {

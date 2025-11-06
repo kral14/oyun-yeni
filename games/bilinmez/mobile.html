@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>3 Taş Oyunu - Mobil</title>
+    <link rel="stylesheet" href="../../assets/style.css?v=1">
+    <link rel="stylesheet" href="../../assets/components/profile/profile.css?v=1">
+    <link rel="stylesheet" href="navbar.css?v=1">
+    <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: rgba(0, 188, 212, 0.3);
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1a1f25 0%, #0f1419 100%);
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            overflow-x: hidden;
+            padding-top: 60px !important;
+            padding-bottom: env(safe-area-inset-bottom);
+            box-sizing: border-box;
+        }
+        
+        /* ===== GAME CONTAINER ===== */
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            max-width: 100%;
+            margin: 0 auto;
+            position: relative;
+            min-height: calc(100vh - 55px);
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        /* ===== GAME BOARD ===== */
+        .game-board-container {
+            position: relative;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.2);
+            width: 100%;
+            max-width: 100vw;
+            box-sizing: border-box;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .game-board {
+            position: relative;
+            width: 100%;
+            max-width: min(95vw, calc(100vh - 250px));
+            height: auto;
+            aspect-ratio: 1;
+            min-height: 300px;
+            min-width: 300px;
+            max-height: min(95vw, calc(100vh - 250px));
+            max-width: min(95vw, calc(100vh - 250px));
+            background: #f5f5f5 !important;
+            border: 2px solid #333 !important;
+            border-radius: 8px;
+            margin: 0 auto;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            overflow: visible;
+            box-sizing: border-box;
+        }
+        
+        /* Ensure game board container is visible when shown */
+        #gameBoardContainer {
+            display: none; /* Hidden by default, shown by JavaScript */
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        #gameBoardContainer[style*="display: block"],
+        #gameBoardContainer:not([style*="display: none"]) {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100%;
+        }
+        
+        .grid-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(to right, rgba(0,0,0,0.1) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0,0,0,0.1) 1px, transparent 1px);
+            background-size: 8% 8%;
+            opacity: 0.3;
+            display: block !important;
+            visibility: visible !important;
+            z-index: 1;
+        }
+        
+        .path {
+            position: absolute;
+            background: #FFD700;
+            border: 2px solid #000;
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .path-vertical-left {
+            left: 8.33%;
+            top: 8.33%;
+            width: 10%;
+            height: 83.33%;
+        }
+        
+        .path-vertical-right {
+            right: 8.33%;
+            top: 8.33%;
+            width: 10%;
+            height: 83.33%;
+        }
+        
+        .path-horizontal-extended {
+            left: 8.33%;
+            top: 50%;
+            width: 83.33%;
+            height: 10%;
+            transform: translateY(-50%);
+        }
+        
+        .path-vertical-upper-center {
+            left: 33.33%;
+            top: 33.33%;
+            width: 10%;
+            height: 21.67%;
+        }
+        
+        .path-vertical-lower-center {
+            left: 61.67%;
+            top: 55%;
+            width: 10%;
+            height: 21.67%;
+        }
+        
+        .node-number {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid #333;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 11px;
+            color: #333;
+            z-index: 15;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .stone {
+            position: absolute;
+            width: 8.3%;
+            height: 8.3%;
+            min-width: 32px;
+            min-height: 32px;
+            max-width: 45px;
+            max-height: 45px;
+            border-radius: 50%;
+            border: 2px solid #000;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            z-index: 10;
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+            touch-action: manipulation;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 11px;
+            color: #111;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .stone.orange {
+            background: #ff9800;
+        }
+        
+        .stone.blue {
+            background: #2196F3;
+        }
+        
+        .stone:active {
+            transform: scale(1.1);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+        }
+        
+        .stone.selected {
+            border-color: #00bcd4;
+            box-shadow: 0 0 12px rgba(0, 188, 212, 0.8);
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .stone.destination {
+            border-color: #4CAF50;
+            box-shadow: 0 0 12px rgba(76, 175, 80, 0.8);
+        }
+        
+        .move-hint {
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid #4CAF50;
+            background: rgba(76, 175, 80, 0.15);
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+            cursor: pointer;
+            z-index: 9;
+            transition: transform 0.15s ease;
+            touch-action: manipulation;
+        }
+        
+        .move-hint:active {
+            transform: scale(1.2);
+        }
+        
+        /* ===== BUTTONS ===== */
+        .btn {
+            padding: 12px 20px;
+            background: linear-gradient(45deg, #00bcd4, #0097a7);
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            touch-action: manipulation;
+            width: 100%;
+            max-width: 300px;
+        }
+        
+        .btn:active {
+            transform: scale(0.98);
+            box-shadow: 0 2px 8px rgba(0, 188, 212, 0.4);
+        }
+        
+        .room-controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+        
+        /* ===== LOBBY ===== */
+        .waiting-room {
+            text-align: center;
+            padding: 20px 15px;
+            color: #fff;
+            width: 100%;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            box-sizing: border-box;
+        }
+        
+        .waiting-room.hidden {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+        }
+        
+        .waiting-room h2 {
+            color: #00bcd4;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        
+        /* Ensure room waiting screen is visible when shown */
+        .room-waiting-screen {
+            display: none;
+        }
+        
+        .room-waiting-screen:not(.hidden) {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .lobby-container {
+            margin-top: 20px;
+            width: 100%;
+        }
+        
+        .lobby-title {
+            color: #00bcd4;
+            font-size: 18px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .lobby-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .lobby-room-card {
+            background: rgba(10, 10, 10, 0.95);
+            border: 2px solid #00bcd4;
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .lobby-room-info {
+            flex: 1;
+        }
+        
+        .lobby-room-name {
+            color: #00bcd4;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .lobby-room-details {
+            color: #ccc;
+            font-size: 13px;
+        }
+        
+        .lobby-room-actions {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+        }
+        
+        .lobby-btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            touch-action: manipulation;
+            flex: 1;
+        }
+        
+        .lobby-btn-join {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: #fff;
+        }
+        
+        .lobby-btn-delete {
+            background: linear-gradient(45deg, #f44336, #d32f2f);
+            color: #fff;
+            flex: 0 0 auto;
+            min-width: 50px;
+        }
+        
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 15px;
+            width: 100%;
+            touch-action: manipulation;
+        }
+        
+        /* Icon buttons for lobby */
+        .lobby-icon-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            width: 100%;
+        }
+        
+        .icon-btn {
+            padding: 12px;
+            min-width: 50px;
+            min-height: 50px;
+            max-width: 50px;
+            max-height: 50px;
+            border-radius: 10px;
+            background: rgba(0, 188, 212, 0.15);
+            border: 1.5px solid #00bcd4;
+            color: #00bcd4;
+            cursor: pointer;
+            touch-action: manipulation;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0, 188, 212, 0.2);
+        }
+        
+        .icon-btn:active {
+            transform: scale(0.95);
+            background: rgba(0, 188, 212, 0.25);
+        }
+        
+        .icon-btn.search-btn {
+            background: rgba(76, 175, 80, 0.15);
+            border-color: #4CAF50;
+            color: #4CAF50;
+        }
+        
+        .icon-btn.search-btn:active {
+            background: rgba(76, 175, 80, 0.25);
+        }
+        
+        /* ===== ROOM WAITING ===== */
+        .room-waiting-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 15px;
+            color: #fff;
+            min-height: calc(100vh - 200px);
+            width: 100%;
+        }
+        
+        .room-waiting-content {
+            max-width: 100%;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .room-waiting-content h2 {
+            color: #00bcd4;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+        
+        .room-info-card {
+            background: rgba(0, 188, 212, 0.1);
+            border: 2px solid #00bcd4;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .room-info-value {
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+        
+        .room-waiting-players {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .player-info-card {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 12px 20px;
+            width: 100%;
+        }
+        
+        .player-name {
+            display: block;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        /* ===== MODAL ===== */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100005;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            overflow: auto;
+            padding: 20px 10px;
+        }
+        
+        .modal-content {
+            background: rgba(10, 10, 10, 0.98);
+            margin: 10% auto;
+            padding: 20px;
+            border: 2px solid #00bcd4;
+            border-radius: 12px;
+            width: 95%;
+            max-width: 400px;
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.5);
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            color: #00bcd4;
+            font-size: 18px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .modal-form-group {
+            margin-bottom: 15px;
+        }
+        
+        .modal-form-group label {
+            display: block;
+            color: #00bcd4;
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+        
+        .modal-form-group input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 15px;
+            box-sizing: border-box;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 15px;
+        }
+        
+        .modal-btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            touch-action: manipulation;
+        }
+        
+        .modal-btn-primary {
+            background: linear-gradient(45deg, #00bcd4, #0097a7);
+            color: #fff;
+        }
+        
+        .modal-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        /* ===== GAME STATUS ===== */
+        .game-status {
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            color: #fff;
+            text-align: center;
+            font-size: 15px;
+            width: 100%;
+            max-width: 500px;
+        }
+        
+        .game-status.winner {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        /* ===== DICE ===== */
+        :root {
+            --dice-size: 80px;
+            --dot-size: calc(var(--dice-size) / 6.5);
+            --border-radius: calc(var(--dice-size) / 6);
+        }
+        
+        .dice-scene {
+            width: var(--dice-size);
+            height: var(--dice-size);
+            position: relative;
+            filter: drop-shadow(0 8px 12px rgba(0,0,0,0.6));
+            transform-style: preserve-3d;
+            margin: 0 auto;
+        }
+        
+        .dice-cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transform: translateZ(calc(var(--dice-size) / -2));
+        }
+        
+        .dice-cube__face {
+            position: absolute;
+            width: var(--dice-size);
+            height: var(--dice-size);
+            background: linear-gradient(145deg, rgba(200, 60, 60, 0.95) 0%, rgba(150, 25, 25, 0.95) 100%);
+            border-radius: var(--border-radius);
+            border: 2px solid #00ffff;
+            box-shadow: inset 0 0 calc(var(--dice-size) / 8) rgba(0,0,0,0.65),
+                        0px 3px 8px rgba(0, 0, 0, 0.3);
+            display: grid;
+            box-sizing: border-box;
+            backface-visibility: hidden;
+            padding: calc(var(--dice-size) / 10);
+            user-select: none;
+            overflow: hidden;
+        }
+        
+        .dice-dot {
+            width: var(--dot-size);
+            height: var(--dot-size);
+            border-radius: 50%;
+            background-color: #f8f8f8;
+            box-shadow: inset 1px 1px 4px rgba(0,0,0,0.7);
+            justify-self: center;
+            align-self: center;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        .dice-cube__face--front { transform: rotateY(  0deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--back  { transform: rotateY(180deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--right { transform: rotateY( 90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--left  { transform: rotateY(-90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--top   { transform: rotateX( 90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--bottom{ transform: rotateX(-90deg) translateZ(calc(var(--dice-size) / 2)); }
+        
+        .dice-cube__face--1 { grid-template-areas: ". . ." ". a ." ". . ."; }
+        .dice-cube__face--1 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--2 { grid-template-areas: "a . ." ". . ." ". . b"; }
+        .dice-cube__face--2 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--2 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--3 { grid-template-areas: "a . ." ". b ." ". . c"; }
+        .dice-cube__face--3 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--3 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--3 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--4 { grid-template-areas: "a . b" ". . ." "c . d"; gap: calc(var(--dot-size) / 3); }
+        .dice-cube__face--4 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--4 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--4 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--4 .dice-dot:nth-child(4) { grid-area: d; }
+        .dice-cube__face--5 { grid-template-areas: "a . b" ". e ." "c . d"; gap: calc(var(--dot-size) / 3); }
+        .dice-cube__face--5 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--5 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--5 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--5 .dice-dot:nth-child(4) { grid-area: d; }
+        .dice-cube__face--5 .dice-dot:nth-child(5) { grid-area: e; }
+        .dice-cube__face--6 { grid-template-areas: "a . d" "b . e" "c . f"; gap: calc(var(--dot-size) / 3); }
+        .dice-cube__face--6 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--6 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--6 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--6 .dice-dot:nth-child(4) { grid-area: d; }
+        .dice-cube__face--6 .dice-dot:nth-child(5) { grid-area: e; }
+        .dice-cube__face--6 .dice-dot:nth-child(6) { grid-area: f; }
+        
+        /* ===== SCREEN TRANSITION ===== */
+        .screen-transition {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: linear-gradient(135deg, #1a1f25 0%, #0f1419 100%);
+            z-index: 99999 !important;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease-in-out;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .screen-transition.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        #transitionAnimation {
+            width: 100% !important;
+            height: 100% !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+        }
+        
+        /* ===== LANDSCAPE ORIENTATION ===== */
+        @media screen and (orientation: landscape) and (max-height: 500px) {
+            .game-board {
+                max-width: min(70vh, 70vw);
+                max-height: min(70vh, calc(100vh - 150px));
+            }
+            
+            .game-container {
+                padding: 5px;
+            }
+        }
+        
+        /* ===== SMALL PHONES ===== */
+        @media screen and (max-width: 360px) {
+            .stone {
+                min-width: 28px;
+                min-height: 28px;
+                font-size: 10px;
+            }
+            
+            .node-number {
+                width: 16px;
+                height: 16px;
+                font-size: 9px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar Import -->
+    <div id="navbar-container">
+        <!-- Mobile Navbar -->
+        <div class="game-header">
+            <h1>🎮 3 Taş</h1>
+            <div class="game-info">
+                <div class="room-info" id="roomInfo" style="display: none;">
+                    <button id="backToLobbyBtn" class="home-btn" title="Lobiyə Qayıt" style="margin-right: 6px;">←</button>
+                    <button id="deleteRoomBtn" class="home-btn" title="Otağı Sil" style="margin-right: 6px; background: rgba(244, 67, 54, 0.2); border-color: #f44336;">🗑️</button>
+                    <div>Kod:</div>
+                    <div class="room-code" id="roomCode">-</div>
+                </div>
+                <div class="player-status" id="playerStatus" style="display: none;">
+                    <div class="player orange" id="playerOrange">
+                        <span id="playerOrangeName">-</span>
+                    </div>
+                    <div class="player blue" id="playerBlue">
+                        <span id="playerBlueName">-</span>
+                    </div>
+                </div>
+            </div>
+            <div class="profile-section">
+                <button id="homeBtn" class="home-btn" title="Ana Səhifə">🏠</button>
+                <div class="profile-info">
+                    <span class="profile-icon">👤</span>
+                    <span id="profileUsername" class="profile-username">İstifadəçi</span>
+                </div>
+                <div class="profile-dropdown" id="profileDropdown">
+                    <div class="profile-dropdown-content">
+                        <div class="profile-menu-item" id="editProfileBtn">
+                            <span>Profili Düzəlt</span>
+                        </div>
+                        <div class="profile-menu-item" id="logoutBtn">
+                            <span>Çıxış</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="game-container">
+        <!-- Lobby Screen -->
+        <div id="waitingRoom" class="waiting-room">
+            <h2>Aktif Otaqlar</h2>
+            <p style="color: #ccc; text-align: center; margin-bottom: 15px; font-size: 13px;">
+                Otaq yaradın və ya mövcud otaqlara qoşulun
+            </p>
+            
+            <div class="lobby-container">
+                <div class="lobby-icon-buttons">
+                    <button class="icon-btn" id="createRoomBtn" title="Yeni Otaq Yarat">➕</button>
+                    <button class="icon-btn" id="refreshLobbyBtn" title="Yenilə">🔄</button>
+                    <button class="icon-btn search-btn" id="searchRoomBtn" title="Otaq Tap">🔍</button>
+                </div>
+                <div id="lobbyList" class="lobby-list">
+                    <!-- Rooms will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Room Waiting Screen -->
+        <div id="roomWaitingScreen" class="room-waiting-screen" style="display: none;">
+            <div class="room-waiting-content">
+                <h2>Otaqda Gözləyirsiniz</h2>
+                <div class="room-info-card">
+                    <div class="room-info-item">
+                        <span class="room-info-label">Otaq Kodu:</span>
+                        <span class="room-info-value" id="roomWaitingCode">-</span>
+                    </div>
+                </div>
+                <div id="roomWaitingMessage" class="room-waiting-message" style="background: rgba(255, 152, 0, 0.2); border: 2px solid #ff9800; border-radius: 8px; padding: 15px; margin: 20px 0; color: #ff9800; font-size: 14px; line-height: 1.6;">
+                    <!-- Waiting message will be shown here -->
+                </div>
+                <div class="room-waiting-players">
+                    <div class="player-info-card orange">
+                        <span class="player-label" style="display: block; color: #ccc; font-size: 12px; margin-bottom: 6px;">Turuncu:</span>
+                        <span class="player-name" id="roomWaitingOrange">-</span>
+                    </div>
+                    <div class="player-info-card blue">
+                        <span class="player-label" style="display: block; color: #ccc; font-size: 12px; margin-bottom: 6px;">Mavi:</span>
+                        <span class="player-name" id="roomWaitingBlue">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Create Room Modal -->
+        <div id="createRoomModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">Yeni Otaq Yarat</div>
+                <form id="createRoomForm">
+                    <div class="modal-form-group">
+                        <label for="roomName">Otaq Adı:</label>
+                        <input type="text" id="roomName" name="roomName" required 
+                               placeholder="Otaq adını daxil edin" maxlength="30">
+                    </div>
+                    <div class="modal-form-group">
+                        <label for="roomPassword">Şifrə (İstəyə bağlı):</label>
+                        <input type="password" id="roomPassword" name="roomPassword" 
+                               placeholder="Şifrə təyin edin" maxlength="20">
+                    </div>
+                    <div class="modal-buttons">
+                        <button type="button" class="modal-btn modal-btn-secondary" id="cancelCreateBtn">Ləğv</button>
+                        <button type="submit" class="modal-btn modal-btn-primary">Yarat</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Join Room Modal -->
+        <div id="joinRoomModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">Otaqa Qoşul</div>
+                <form id="joinRoomForm">
+                    <div class="modal-form-group">
+                        <label id="joinRoomNameLabel">Otaq: <span id="joinRoomName"></span></label>
+                    </div>
+                    <div class="modal-form-group" id="passwordGroup" style="display: none;">
+                        <label for="joinRoomPassword">Şifrə:</label>
+                        <input type="password" id="joinRoomPassword" name="joinRoomPassword" 
+                               placeholder="Otaq şifrəsini daxil edin" required>
+                    </div>
+                    <div class="modal-buttons">
+                        <button type="button" class="modal-btn modal-btn-secondary" id="cancelJoinBtn">Ləğv</button>
+                        <button type="submit" class="modal-btn modal-btn-primary">Qoşul</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Screen Transition Overlay -->
+        <div id="screenTransitionOverlay" class="screen-transition">
+            <div id="transitionAnimation"></div>
+        </div>
+        
+        <!-- Game Board -->
+        <div id="gameBoardContainer" style="display: none;">
+            <div class="game-board-container">
+                <div class="game-board" id="gameBoard">
+                    <div class="grid-background"></div>
+                    
+                    <!-- Paths for 10-node layout -->
+                    <div class="path path-vertical-left"></div>
+                    <div class="path path-vertical-right"></div>
+                    <div class="path path-horizontal-extended"></div>
+                    <div class="path path-vertical-upper-center"></div>
+                    <div class="path path-vertical-lower-center"></div>
+                    
+                    <!-- Stones will be added dynamically -->
+                </div>
+            </div>
+            
+            <div class="game-status" id="gameStatus"></div>
+            
+            <!-- Dice Modal -->
+            <div id="diceModal" class="modal">
+                <div class="modal-content" style="max-width: 95%;">
+                    <div class="modal-header">İlk Oynayacaq Oyunçu</div>
+                    <div id="diceInfo" style="color:#ccc; text-align:center; margin-bottom:15px; font-size: 13px;">Hər iki oyunçu zar atsın.</div>
+                    
+                    <!-- Dice containers -->
+                    <div style="display:flex; gap:20px; justify-content:center; align-items:center; margin-bottom:15px; flex-wrap:wrap;">
+                        <!-- Player 1 (Orange) Dice -->
+                        <div style="min-width:120px; text-align:center;">
+                            <div style="color:#ff9800; font-weight:bold; font-size:14px; margin-bottom:8px;" id="diceP1Name">Turuncu</div>
+                            <div id="diceP1Container" style="width:80px; height:80px; margin:0 auto; position:relative;">
+                                <!-- 3D Dice will be inserted here -->
+                            </div>
+                            <div id="diceP1Val" style="font-size:18px; color:#fff; font-weight:bold; margin-top:8px;">-</div>
+                            <div id="diceP1Status" style="font-size:11px; color:#888; margin-top:3px;">Gözlənir...</div>
+                        </div>
+                        
+                        <!-- Player 2 (Blue) Dice -->
+                        <div style="min-width:120px; text-align:center;">
+                            <div style="color:#2196F3; font-weight:bold; font-size:14px; margin-bottom:8px;" id="diceP2Name">Mavi</div>
+                            <div id="diceP2Container" style="width:80px; height:80px; margin:0 auto; position:relative;">
+                                <!-- 3D Dice will be inserted here -->
+                            </div>
+                            <div id="diceP2Val" style="font-size:18px; color:#fff; font-weight:bold; margin-top:8px;">-</div>
+                            <div id="diceP2Status" style="font-size:11px; color:#888; margin-top:3px;">Gözlənir...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Roll button and result -->
+                    <div style="display:flex; flex-direction:column; gap:10px; justify-content:center; align-items:center;">
+                        <button class="modal-btn modal-btn-primary" id="rollDiceBtn" style="width: 100%; max-width: 250px;">Zarı At</button>
+                        <div id="diceResult" style="color:#00bcd4; font-weight:bold; font-size:15px; text-align:center; min-height:20px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Desktop Detection and Redirect -->
+    <script>
+        (function() {
+            // Function to detect desktop devices
+            function isDesktopDevice() {
+                // Check user agent for desktop
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i;
+                
+                // Check screen size
+                const isLargeScreen = window.innerWidth > 768;
+                
+                // Check touch support
+                const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                
+                // Desktop if: NOT mobile user agent AND (large screen OR no touch support)
+                return !mobileRegex.test(userAgent) && (isLargeScreen || !hasTouchScreen);
+            }
+            
+            // Only redirect if on desktop device and not already on index.html
+            if (isDesktopDevice() && !window.location.pathname.includes('index.html')) {
+                // Get current path and replace mobile.html with index.html
+                const currentPath = window.location.pathname;
+                const newPath = currentPath.replace(/mobile\.html$/, 'index.html') || 
+                               currentPath.replace(/\/$/, '/index.html') ||
+                               'index.html';
+                
+                // Preserve query parameters and hash
+                const queryString = window.location.search;
+                const hash = window.location.hash;
+                
+                // Redirect to desktop version
+                window.location.replace(newPath + queryString + hash);
+            }
+        })();
+    </script>
+    
+    <!-- Socket.IO Client Library -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- Three.js for transition animations -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="three_stones_core.js?v=1"></script>
+    <script src="../../assets/components/profile/profile.js?v=1"></script>
+    <script src="game.js?v=1"></script>
+</body>
+</html>
+

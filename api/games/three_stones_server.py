@@ -1477,22 +1477,51 @@ def handle_rejoin_room(data):
     # Check if slot is already taken by another active player
     if player_color in room['players']:
         existing_player_id = room['players'][player_color]
-        if existing_player_id in players and players[existing_player_id].get('room_code') == room_code:
-            # Another active player is in this slot, can't rejoin
-            emit('error', {'message': 'Otaq doludur'})
-            return
-        # Slot exists but player is disconnected, reclaim it
-        # Check if this is the same player reconnecting (same socket ID in disconnect timer)
-        if existing_player_id != player_id:
-            # Different player - need to check if old player is still in disconnect timer
-            # If old player has disconnect timer, they're still reconnecting
-            # Otherwise, they've left and we can reclaim the slot
-            log_info("Slot has different player, checking disconnect timer", {
+        # Check if existing player is still active (connected and in same room)
+        existing_player_active = existing_player_id in players and players[existing_player_id].get('room_code') == room_code
+        
+        if existing_player_active:
+            # Another active player is in this slot
+            # But if this is the same player reconnecting (same username), we should allow rejoin
+            # Check if existing player has same username (same person reconnecting)
+            existing_username = players[existing_player_id].get('username', '')
+            if existing_username == username:
+                # Same player reconnecting - remove old socket ID and use new one
+                log_info("Same player reconnecting, replacing old socket ID", {
+                    'old_player_id': existing_player_id,
+                    'new_player_id': player_id,
+                    'username': username,
+                    'room_code': room_code,
+                    'player_color': player_color
+                })
+                # Remove old player from players dict
+                if existing_player_id in players:
+                    del players[existing_player_id]
+                # Remove old player from room
+                del room['players'][player_color]
+            else:
+                # Different player is in this slot, can't rejoin
+                log_warning("Different player already in slot, can't rejoin", {
+                    'existing_player_id': existing_player_id,
+                    'existing_username': existing_username,
+                    'new_player_id': player_id,
+                    'new_username': username,
+                    'room_code': room_code,
+                    'player_color': player_color
+                })
+                emit('error', {'message': 'Otaq doludur'})
+                return
+        else:
+            # Slot exists but player is disconnected, reclaim it
+            log_info("Slot has disconnected player, reclaiming", {
                 'existing_player_id': existing_player_id,
                 'new_player_id': player_id,
                 'room_code': room_code
             })
-        del room['players'][player_color]
+            # Remove old disconnected player from players dict if exists
+            if existing_player_id in players:
+                del players[existing_player_id]
+            del room['players'][player_color]
     
     log_info("Player rejoin details determined", {
         'player_id': player_id,
@@ -1769,12 +1798,40 @@ def handle_make_move(data):
     if not game_state or game_state['gameOver']:
         return
     
+    # Normalize node IDs (map old IDs to new IDs)
+    node_id_map = {
+        'LT': '10',  # Left Top -> 10
+        'LM': '9',   # Left Middle -> 9
+        'LB': '8',   # Left Bottom -> 8
+        'RT': '5',   # Right Top -> 5
+        'RM': '6',   # Right Middle -> 6
+        'RB': '7',   # Right Bottom -> 7
+        'C_UL': '3', # Center Upper Left -> 3
+        'C_DR': '2'  # Center Down Right -> 2
+    }
+    
+    # IMPORTANT: Normalize all stone nodeIds in game_state BEFORE processing the move
+    # This ensures that even if game_state was loaded from database with old format, it's normalized
+    all_stones = game_state.get('orangeStones', []) + game_state.get('blueStones', [])
+    normalized_count = 0
+    for s in all_stones:
+        node_id = s.get('nodeId')
+        if node_id and node_id in node_id_map:
+            normalized_id = node_id_map[node_id]
+            s['nodeId'] = normalized_id
+            normalized_count += 1
+            log_debug(f"[DEBUG] handle_make_move: Normalized stone nodeId - stone_id={s.get('id')}, original={node_id}, normalized={normalized_id}")
+    
+    if normalized_count > 0:
+        log_debug(f"[DEBUG] handle_make_move: Normalized {normalized_count} stone nodeIds in game_state")
+    
     # Check if it's player's turn
     if game_state['currentTurn'] != player_color:
         emit('error', {'message': 'Sizin növbəniz deyil'})
         return
     
     stone_id = data.get('stoneId')
+    from_node_id = data.get('fromNodeId')  # Get fromNodeId from client (original position)
     to_node_id = data.get('toNodeId')
     new_x = data.get('x')
     new_y = data.get('y')
@@ -1791,14 +1848,41 @@ def handle_make_move(data):
         return
     
     # Validate move: check if target node is a neighbor and empty
-    current_node_id = stone.get('nodeId')
+    # Use fromNodeId from client if provided, otherwise use stone's current nodeId
+    current_node_id = from_node_id if from_node_id else stone.get('nodeId')
     if not current_node_id or not to_node_id:
         emit('error', {'message': 'Hərəkət etmək üçün nöqtə seçilməyib'})
         return
     
+    log_debug(f"[DEBUG] handle_make_move: Received move - stone_id={stone_id}, from_node_id={from_node_id}, current_node_id={current_node_id} (type: {type(current_node_id).__name__}), to_node_id={to_node_id} (type: {type(to_node_id).__name__}), player_color={player_color}, current_turn={game_state.get('currentTurn')}")
+    
+    # Ensure current_node_id and to_node_id are strings first
+    current_node_id = str(current_node_id) if current_node_id is not None else None
+    to_node_id = str(to_node_id) if to_node_id is not None else None
+    
+    # Double-check normalization (should already be normalized, but ensure it)
+    original_current_node_id = current_node_id
+    if current_node_id in node_id_map:
+        current_node_id = node_id_map[current_node_id]
+        # Update stone's nodeId only if we're using fromNodeId (client sent it)
+        if from_node_id:
+            stone['nodeId'] = current_node_id  # Update stone's nodeId to normalized value
+        log_debug(f"[DEBUG] handle_make_move: Normalized current node ID - original={original_current_node_id}, normalized={current_node_id}")
+    else:
+        log_debug(f"[DEBUG] handle_make_move: Current node ID already normalized or not in map - current_node_id={current_node_id}, node_id_map_keys={list(node_id_map.keys())}")
+    
+    # Normalize target node ID if needed
+    original_to_node_id = to_node_id
+    if to_node_id in node_id_map:
+        to_node_id = node_id_map[to_node_id]
+        log_debug(f"[DEBUG] handle_make_move: Normalized target node ID - original={original_to_node_id}, normalized={to_node_id}")
+    
+    log_debug(f"[DEBUG] handle_make_move: After normalization - current_node_id={current_node_id} (type: {type(current_node_id).__name__}), to_node_id={to_node_id} (type: {type(to_node_id).__name__}), board_nodes_keys={list(BOARD_NODES.keys())}, current_node_id_in_board={current_node_id in BOARD_NODES}")
+    
     # Check if target node is a neighbor (1 step away)
     current_node = BOARD_NODES.get(current_node_id)
     if not current_node:
+        log_error(f"[DEBUG] handle_make_move: Current node not found - current_node_id={current_node_id} (type: {type(current_node_id).__name__}), original_current_node_id={original_current_node_id}, board_nodes_keys={list(BOARD_NODES.keys())}, stone={stone}, stone_nodeId={stone.get('nodeId')} (type: {type(stone.get('nodeId')).__name__}), all_stone_nodeIds={[s.get('nodeId') for s in all_stones]}")
         emit('error', {'message': 'Cari nöqtə tapılmadı'})
         return
     
@@ -1807,11 +1891,74 @@ def handle_make_move(data):
         return
     
     # Check if target node is empty
+    # Normalize all stone node IDs before checking
     all_stones = game_state['orangeStones'] + game_state['blueStones']
-    occupied_nodes = {s.get('nodeId') for s in all_stones if s.get('nodeId')}
+    occupied_nodes = set()
+    for s in all_stones:
+        node_id = s.get('nodeId')
+        if node_id:
+            # Normalize node ID if needed
+            normalized_id = node_id_map.get(node_id, node_id)
+            occupied_nodes.add(normalized_id)
+            # Update stone's nodeId if it was normalized
+            if node_id != normalized_id:
+                s['nodeId'] = normalized_id
     
     if to_node_id in occupied_nodes:
         emit('error', {'message': 'Bu nöqtə doludur'})
+        return
+    
+    # Check if this move would block opponent completely (stalemate prevention)
+    def check_opponent_has_valid_moves(current_color, from_node, to_node, orange_stones, blue_stones):
+        """Check if opponent has any valid moves after a hypothetical move"""
+        # Create temporary copies
+        temp_orange = [dict(s) for s in orange_stones]
+        temp_blue = [dict(s) for s in blue_stones]
+        
+        # Apply the move to temporary state
+        temp_collection = temp_orange if current_color == 'orange' else temp_blue
+        stone_idx = next((i for i, s in enumerate(temp_collection) if s.get('nodeId') == from_node), -1)
+        if stone_idx != -1:
+            temp_collection[stone_idx] = dict(temp_collection[stone_idx])
+            temp_collection[stone_idx]['nodeId'] = to_node
+        
+        # Get opponent's stones
+        opponent_stones = temp_blue if current_color == 'orange' else temp_orange
+        
+        # Get all occupied nodes after the move
+        all_temp_stones = temp_orange + temp_blue
+        occupied_after_move = {s.get('nodeId') for s in all_temp_stones if s.get('nodeId')}
+        
+        # Check if opponent has at least one stone that can move
+        for opp_stone in opponent_stones:
+            stone_node_id = opp_stone.get('nodeId')
+            if not stone_node_id:
+                continue
+            
+            stone_node = BOARD_NODES.get(stone_node_id)
+            if not stone_node:
+                continue
+            
+            # Check if this stone has at least one empty neighbor
+            neighbors = stone_node.get('neighbors', [])
+            has_valid_move = any(neighbor_id not in occupied_after_move for neighbor_id in neighbors)
+            if has_valid_move:
+                return True  # Opponent has at least one valid move
+        
+        return False  # Opponent has no valid moves
+    
+    # Check if move would block opponent completely
+    opponent_has_moves = check_opponent_has_valid_moves(
+        player_color,
+        current_node_id,
+        to_node_id,
+        game_state['orangeStones'],
+        game_state['blueStones']
+    )
+    
+    if not opponent_has_moves:
+        log_debug(f"[DEBUG] handle_make_move: Move would block opponent completely - from={current_node_id}, to={to_node_id}, player_color={player_color}")
+        emit('error', {'message': 'Bu hərəkət rəqibin bütün yollarını bağlayır. Belə bir hərəkətə icazə verilmir.'})
         return
     
     # Update stone position (use nodeId if provided, otherwise use x,y)
@@ -1841,8 +1988,15 @@ def handle_make_move(data):
             game_state['winner'] = winner
     
     # Switch turn only if game is not over
+    previous_turn = game_state.get('currentTurn')
     if not game_state['gameOver']:
-        game_state['currentTurn'] = 'blue' if player_color == 'orange' else 'orange'
+        new_turn = 'blue' if player_color == 'orange' else 'orange'
+        game_state['currentTurn'] = new_turn
+        log_debug(f"[DEBUG] handle_make_move: Turn switched - previous_turn={previous_turn}, new_turn={new_turn}, player_color={player_color}")
+    else:
+        log_debug(f"[DEBUG] handle_make_move: Game over, turn not switched - winner={game_state.get('winner')}")
+    
+    log_debug(f"[DEBUG] handle_make_move: Move completed successfully - stone_id={stone_id}, from={original_current_node_id}, to={to_node_id}, current_turn={game_state.get('currentTurn')}")
     
     # Save to database
     if db_pool:
