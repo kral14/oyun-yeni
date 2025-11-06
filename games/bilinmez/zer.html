@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anında Durma ile 3D Zar (Neon Kenar & Duman Efekti - Siyah Arkaplan)</title>
+    <style>
+        :root {
+            --dice-size: 110px;
+            --dot-size: calc(var(--dice-size) / 6.5);
+            --border-radius: calc(var(--dice-size) / 6);
+            /* Kenarlık Stili - NEON */
+            --edge-border-thickness: 2px;
+            --edge-border-color: #00ffff; /* Neon Camgöbeği/Mavi */
+            /* Hareket Adımları */
+            --forward-step: -65px;
+            --side-step-max: 30px;
+            --vertical-bounce-max: 12px;
+            /* Döndürme Hassasiyeti */
+            --rotate-sensitivity: 0.4;
+            /* Animasyon Süreleri ve Fonksiyonları */
+            --roll-duration: 2.5s;
+            --roll-timing-function: cubic-bezier(0.25, 0.9, 0.5, 1.0);
+            /* Duman Renkleri */
+            --smoke-color-1: rgba(173, 216, 230, 0.6); /* Açık Mavi */
+            --smoke-color-2: rgba(255, 255, 255, 0.7); /* Beyaz */
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            /* ---- ARKA PLAN DEĞİŞTİRİLDİ ---- */
+            background: #000000; /* Siyah arkaplan */
+            /* Beyaz isterseniz: background: #ffffff; */
+            flex-direction: column;
+            gap: 40px;
+            overflow: hidden;
+            color: #e0e0e0; /* Yazı rengi açık kalsın */
+            font-family: sans-serif;
+            touch-action: none;
+        }
+        .instructions {
+            font-size: 1.1em;
+            /* Siyah arkaplanda gölge gerekmeyebilir veya farklı olabilir */
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.2);
+            margin-bottom: -20px;
+            text-align: center;
+            max-width: 80%;
+        }
+        .table-surface {
+            width: 90%;
+            max-width: 600px;
+            height: 350px;
+            perspective: 2000px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Siyah arkaplanda bu gradyan görünmez, kaldırılabilir veya ayarlanabilir */
+            background: radial-gradient(ellipse at center, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%);
+        }
+        .scene {
+            width: var(--dice-size);
+            height: var(--dice-size);
+            position: relative;
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.6)); /* Gölge siyah zeminde daha belirgin olabilir */
+            transform-style: preserve-3d;
+        }
+        .cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            cursor: grab;
+            transform: translateZ(calc(var(--dice-size) / -2));
+        }
+        .cube:active {
+            cursor: grabbing;
+        }
+        .cube__face {
+            position: absolute;
+            width: var(--dice-size);
+            height: var(--dice-size);
+            background: linear-gradient(145deg, rgba(200, 60, 60, 0.95) 0%, rgba(150, 25, 25, 0.95) 100%);
+            border-radius: var(--border-radius);
+            border: var(--edge-border-thickness) solid var(--edge-border-color); /* Neon Kenarlık */
+            box-shadow: inset 0 0 calc(var(--dice-size) / 8) rgba(0,0,0,0.65),
+                        0px 3px 8px rgba(0, 0, 0, 0.3);
+            display: grid;
+            box-sizing: border-box;
+            backface-visibility: hidden;
+            padding: calc(var(--dice-size) / 10);
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            overflow: hidden;
+        }
+        .cube__face::before { /* Parlama efekti */
+            content: '';
+            position: absolute;
+            top: -20%;
+            left: -20%;
+            width: 70%;
+            height: 70%;
+            background: radial-gradient(ellipse at center, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0) 70%);
+            transform: rotate(45deg);
+            opacity: 0.8;
+            pointer-events: none;
+        }
+        .dot {
+            width: var(--dot-size);
+            height: var(--dot-size);
+            border-radius: 50%;
+            background-color: #f8f8f8;
+            box-shadow: inset 1px 1px 4px rgba(0,0,0,0.7);
+            justify-self: center;
+            align-self: center;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        /* Yüz Konumları */
+        .cube__face--front { transform: rotateY(  0deg) translateZ(calc(var(--dice-size) / 2)); }
+        .cube__face--back  { transform: rotateY(180deg) translateZ(calc(var(--dice-size) / 2)); }
+        .cube__face--right { transform: rotateY( 90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .cube__face--left  { transform: rotateY(-90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .cube__face--top   { transform: rotateX( 90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .cube__face--bottom{ transform: rotateX(-90deg) translateZ(calc(var(--dice-size) / 2)); }
+
+        /* Nokta Düzenleri */
+        .cube__face--1 { grid-template-areas: ". . ." ". a ." ". . ."; }
+        .cube__face--1 .dot:nth-child(1) { grid-area: a; }
+        .cube__face--2 { grid-template-areas: "a . ." ". . ." ". . b"; }
+        .cube__face--2 .dot:nth-child(1) { grid-area: a; }
+        .cube__face--2 .dot:nth-child(2) { grid-area: b; }
+        .cube__face--3 { grid-template-areas: "a . ." ". b ." ". . c"; }
+        .cube__face--3 .dot:nth-child(1) { grid-area: a; }
+        .cube__face--3 .dot:nth-child(2) { grid-area: b; }
+        .cube__face--3 .dot:nth-child(3) { grid-area: c; }
+        .cube__face--4 { grid-template-areas: "a . b" ". . ." "c . d"; gap: calc(var(--dot-size) / 3); }
+        .cube__face--4 .dot:nth-child(1) { grid-area: a; }
+        .cube__face--4 .dot:nth-child(2) { grid-area: b; }
+        .cube__face--4 .dot:nth-child(3) { grid-area: c; }
+        .cube__face--4 .dot:nth-child(4) { grid-area: d; }
+        .cube__face--5 { grid-template-areas: "a . b" ". e ." "c . d"; gap: calc(var(--dot-size) / 3); }
+        .cube__face--5 .dot:nth-child(1) { grid-area: a; }
+        .cube__face--5 .dot:nth-child(2) { grid-area: b; }
+        .cube__face--5 .dot:nth-child(3) { grid-area: c; }
+        .cube__face--5 .dot:nth-child(4) { grid-area: d; }
+        .cube__face--5 .dot:nth-child(5) { grid-area: e; }
+        .cube__face--6 { grid-template-areas: "a . d" "b . e" "c . f"; gap: calc(var(--dot-size) / 3); }
+        .cube__face--6 .dot:nth-child(1) { grid-area: a; }
+        .cube__face--6 .dot:nth-child(2) { grid-area: b; }
+        .cube__face--6 .dot:nth-child(3) { grid-area: c; }
+        .cube__face--6 .dot:nth-child(4) { grid-area: d; }
+        .cube__face--6 .dot:nth-child(5) { grid-area: e; }
+        .cube__face--6 .dot:nth-child(6) { grid-area: f; }
+
+        /* --- Duman/Aura Efekti --- */
+        .scene::before,
+        .scene::after {
+            content: '';
+            position: absolute;
+            width: 150%;
+            height: 150%;
+            top: -25%;
+            left: -25%;
+            background: radial-gradient(ellipse at center, var(--smoke-color-2) 10%, var(--smoke-color-1) 50%, transparent 70%);
+            border-radius: 50%;
+            filter: blur(25px);
+            opacity: 0;
+            transform: scale(0.5);
+            transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+            pointer-events: none;
+            z-index: -1;
+        }
+        .scene::after {
+             background: radial-gradient(ellipse at center, var(--smoke-color-2) 5%, var(--smoke-color-1) 40%, transparent 60%);
+             filter: blur(35px);
+             transform: scale(0.4);
+             transition-delay: 0.1s;
+        }
+        @keyframes smokePulse {
+            0%, 100% { transform: scale(1.1); opacity: 0.6; }
+            50% { transform: scale(1.3); opacity: 0.8; }
+        }
+        .scene.is-smoking::before,
+        .scene.is-smoking::after {
+            opacity: 0.7;
+            transform: scale(1);
+            animation: smokePulse 1.5s ease-in-out infinite alternate;
+        }
+        .scene.is-smoking::after {
+            animation-delay: -0.5s;
+        }
+
+        #result-display {
+            font-size: 2.5em;
+            font-weight: bold;
+            /* Siyah arkaplanda yazı gölgesi farklı olabilir */
+            text-shadow: 1px 1px 3px rgba(255,255,255,0.3);
+            min-height: 1.5em;
+            text-align: center;
+            margin-top: -15px;
+            color: #e0e0e0; /* Sonuç yazısı rengi açık kalsın */
+        }
+
+        /* Alttaki notun rengi */
+        .footer-note {
+             margin-top: 20px;
+             font-size: 0.8em;
+             color: #888; /* Siyah arkaplanda daha açık gri */
+             text-align: center;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="instructions">Döndürmek için sürükle, atmak için tıkla.</div>
+
+    <div class="table-surface">
+        <div class="scene" id="scene">
+            <div class="cube" id="cube">
+                 <div class="cube__face cube__face--front cube__face--1"><span class="dot"></span></div>
+                 <div class="cube__face cube__face--back cube__face--6"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+                 <div class="cube__face cube__face--right cube__face--3"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+                 <div class="cube__face cube__face--left cube__face--4"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+                 <div class="cube__face cube__face--top cube__face--2"><span class="dot"></span><span class="dot"></span></div>
+                 <div class="cube__face cube__face--bottom cube__face--5"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="result-display"></div>
+
+    <div class="footer-note">
+        Not: Gerçekçi 3D efektler CSS ile sınırlıdır. Neon kenar ve duman efekti eklendi.
+    </div>
+
+    <script>
+        const cubeElement = document.getElementById('cube');
+        const sceneElement = document.getElementById('scene');
+        const resultDisplay = document.getElementById('result-display');
+        let isRolling = false;
+        let isDragging = false;
+        let dragStartX, dragStartY, previousMouseX, previousMouseY;
+        const dragThreshold = 15;
+
+        let currentRotateX = 0;
+        let currentRotateY = 0;
+        let currentRotateZ = 0;
+
+        const rotations = {
+            1: { x: 0,    y: 0    },
+            6: { x: 0,    y: 180  },
+            3: { x: 0,    y: -90  },
+            4: { x: 0,    y: 90   },
+            2: { x: -90,  y: 0    },
+            5: { x: 90,   y: 0    }
+        };
+
+        const rotateSensitivity = parseFloat(getComputedStyle(document.documentElement)
+            .getPropertyValue('--rotate-sensitivity'));
+        const rollDuration = getComputedStyle(document.documentElement)
+            .getPropertyValue('--roll-duration');
+        const rollTimingFunction = getComputedStyle(document.documentElement)
+            .getPropertyValue('--roll-timing-function');
+
+        const initialCenterZ = parseFloat(getComputedStyle(document.documentElement)
+            .getPropertyValue('--dice-size')) / -2;
+
+        cubeElement.addEventListener('mousedown', handleMouseDown);
+        cubeElement.addEventListener('touchstart', handleTouchStart, { passive: false });
+
+        function handleMouseDown(event) {
+            if (isRolling) return;
+            sceneElement.classList.remove('is-smoking');
+            cubeElement.style.transition = 'none';
+            isDragging = false;
+            dragStartX = event.clientX;
+            dragStartY = event.clientY;
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+
+        function handleMouseMove(event) {
+            const deltaX = event.clientX - previousMouseX;
+            const deltaY = event.clientY - previousMouseY;
+            if (!isDragging) {
+                if (Math.abs(event.clientX - dragStartX) > dragThreshold ||
+                    Math.abs(event.clientY - dragStartY) > dragThreshold) {
+                    isDragging = true;
+                    cubeElement.style.cursor = 'grabbing';
+                }
+            }
+            if (isDragging) {
+                currentRotateY += deltaX * rotateSensitivity;
+                currentRotateX -= deltaY * rotateSensitivity;
+                setTransform(currentRotateX, currentRotateY, currentRotateZ);
+            }
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+        }
+
+        function handleMouseUp(event) {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            cubeElement.style.cursor = 'grab';
+            if (!isDragging && !isRolling) {
+                rollDice();
+            }
+            isDragging = false;
+        }
+
+        function handleTouchStart(e) {
+            e.preventDefault();
+            if (isRolling) return;
+            sceneElement.classList.remove('is-smoking');
+            cubeElement.style.transition = 'none';
+            isDragging = false;
+            const touch = e.touches[0];
+            dragStartX = touch.clientX;
+            dragStartY = touch.clientY;
+            previousMouseX = touch.clientX;
+            previousMouseY = touch.clientY;
+            cubeElement.addEventListener('touchmove', handleTouchMove, { passive: false });
+            cubeElement.addEventListener('touchend', handleTouchEnd);
+            cubeElement.addEventListener('touchcancel', handleTouchEnd);
+        }
+
+        function handleTouchMove(e) {
+             e.preventDefault();
+            const touch = e.touches[0];
+            const deltaX = touch.clientX - previousMouseX;
+            const deltaY = touch.clientY - previousMouseY;
+            if (!isDragging) {
+                if (Math.abs(touch.clientX - dragStartX) > dragThreshold ||
+                    Math.abs(touch.clientY - dragStartY) > dragThreshold) {
+                    isDragging = true;
+                }
+            }
+            if (isDragging) {
+                currentRotateY += deltaX * rotateSensitivity;
+                currentRotateX -= deltaY * rotateSensitivity;
+                setTransform(currentRotateX, currentRotateY, currentRotateZ);
+            }
+            previousMouseX = touch.clientX;
+            previousMouseY = touch.clientY;
+        }
+
+        function handleTouchEnd(e) {
+             e.preventDefault();
+            cubeElement.removeEventListener('touchmove', handleTouchMove);
+            cubeElement.removeEventListener('touchend', handleTouchEnd);
+            cubeElement.removeEventListener('touchcancel', handleTouchEnd);
+             if (!isDragging && !isRolling) {
+                  rollDice();
+             }
+            isDragging = false;
+        }
+
+        function rollDice() {
+            if (isRolling) return;
+            isRolling = true;
+            resultDisplay.textContent = "...";
+            cubeElement.style.cursor = 'default';
+            sceneElement.classList.add('is-smoking');
+
+            const randomNumber = Math.floor(Math.random() * 6) + 1;
+            console.log(`--- Atılıyor: ${randomNumber} ---`);
+
+            const finalFace = rotations[randomNumber];
+
+            const fullRotationsX = 360 * (2 + Math.floor(Math.random() * 3));
+            const fullRotationsY = 360 * (2 + Math.floor(Math.random() * 3));
+            const fullRotationsZ = 360 * (1 + Math.floor(Math.random() * 2));
+
+            const targetRotateX = finalFace.x + fullRotationsX;
+            const targetRotateY = finalFace.y + fullRotationsY;
+            const targetRotateZ = 0 + fullRotationsZ;
+
+            cubeElement.style.transition = `transform ${rollDuration} ${rollTimingFunction}`;
+            setTransform(targetRotateX, targetRotateY, targetRotateZ);
+
+            setTimeout(() => {
+                console.log(`Roll bitti. Gösterilen: ${randomNumber}`);
+                cubeElement.style.transition = 'none';
+                sceneElement.classList.remove('is-smoking');
+
+                currentRotateX = finalFace.x;
+                currentRotateY = finalFace.y;
+                currentRotateZ = 0;
+
+                setTransform(currentRotateX, currentRotateY, currentRotateZ);
+                resultDisplay.textContent = `Sayı: ${randomNumber}`;
+                isRolling = false;
+                cubeElement.style.cursor = 'grab';
+
+            }, parseFloat(rollDuration.replace('s', '')) * 1000 + 50);
+        }
+
+        // External trigger to roll a specific value (1..6)
+        function rollDiceWith(value) {
+            if (isRolling) return;
+            const n = Math.max(1, Math.min(6, parseInt(value,10)||1));
+            isRolling = true;
+            resultDisplay.textContent = "...";
+            cubeElement.style.cursor = 'default';
+            sceneElement.classList.add('is-smoking');
+
+            const finalFace = rotations[n];
+            const fullRotationsX = 360 * (2 + Math.floor(Math.random() * 3));
+            const fullRotationsY = 360 * (2 + Math.floor(Math.random() * 3));
+            const fullRotationsZ = 360 * (1 + Math.floor(Math.random() * 2));
+
+            const targetRotateX = finalFace.x + fullRotationsX;
+            const targetRotateY = finalFace.y + fullRotationsY;
+            const targetRotateZ = 0 + fullRotationsZ;
+
+            cubeElement.style.transition = `transform ${rollDuration} ${rollTimingFunction}`;
+            setTransform(targetRotateX, targetRotateY, targetRotateZ);
+
+            setTimeout(() => {
+                cubeElement.style.transition = 'none';
+                sceneElement.classList.remove('is-smoking');
+                currentRotateX = finalFace.x;
+                currentRotateY = finalFace.y;
+                currentRotateZ = 0;
+                setTransform(currentRotateX, currentRotateY, currentRotateZ);
+                resultDisplay.textContent = `Sayı: ${n}`;
+                isRolling = false;
+                cubeElement.style.cursor = 'grab';
+            }, parseFloat(rollDuration.replace('s', '')) * 1000 + 50);
+        }
+
+        function setTransform(rotX = currentRotateX, rotY = currentRotateY, rotZ = currentRotateZ) {
+             const transformString = `translateZ(${initialCenterZ}px) rotateX(${rotX}deg) rotateY(${rotY}deg) rotateZ(${rotZ}deg)`;
+            cubeElement.style.transform = transformString;
+        }
+
+        window.addEventListener('load', () => {
+            cubeElement.style.transition = 'none';
+            setTransform();
+            cubeElement.style.cursor = 'grab';
+        });
+
+        // Listen for parent postMessage to force a roll
+        window.addEventListener('message', (e) => {
+            try {
+                const data = e.data || {};
+                if (data && data.type === 'forceRoll') {
+                    rollDiceWith(data.value);
+                }
+            } catch (err) {}
+        });
+    </script>
+
+</body>
+</html>

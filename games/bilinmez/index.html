@@ -200,11 +200,25 @@
             height: 500px;
         }
         
-        .path-horizontal {
+        .path-horizontal-extended {
             left: 50px;
             top: 300px;
             width: 500px;
             height: 60px;
+        }
+        
+        .path-vertical-upper-center {
+            left: 170px;  /* 200 - 30 (half width) */
+            top: 200px;   /* 200 (node 3) */
+            width: 60px;
+            height: 130px; /* 330 - 200 */
+        }
+        
+        .path-vertical-lower-center {
+            left: 370px;  /* 400 - 30 (half width) */
+            top: 330px;   /* 330 (node 1) */
+            width: 60px;
+            height: 130px; /* 460 - 330 */
         }
         
         .path-vertical-right {
@@ -240,6 +254,24 @@
             top: 200px;
             width: 60px;
             height: 100px;
+        }
+        
+        .node-number {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            color: #333;
+            z-index: 15;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
         }
         
         .stone {
@@ -281,6 +313,23 @@
         .stone.destination {
             border-color: #4CAF50;
             box-shadow: 0 0 15px rgba(76, 175, 80, 0.8);
+        }
+        
+        /* Move hints (green targets) */
+        .move-hint {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 3px solid #4CAF50;
+            background: rgba(76, 175, 80, 0.15);
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.6);
+            cursor: pointer;
+            z-index: 9;
+            transition: transform 0.15s ease;
+        }
+        .move-hint:hover {
+            transform: scale(1.15);
         }
         
         .room-controls {
@@ -705,6 +754,135 @@
             height: 30px;
             cursor: pointer;
         }
+        
+        /* 3D Dice Styles */
+        :root {
+            --dice-size: 110px;
+            --dot-size: calc(var(--dice-size) / 6.5);
+            --border-radius: calc(var(--dice-size) / 6);
+            --edge-border-thickness: 2px;
+            --edge-border-color: #00ffff;
+            --roll-duration: 2.5s;
+            --roll-timing-function: cubic-bezier(0.25, 0.9, 0.5, 1.0);
+            --smoke-color-1: rgba(173, 216, 230, 0.6);
+            --smoke-color-2: rgba(255, 255, 255, 0.7);
+        }
+        
+        .dice-scene {
+            width: var(--dice-size);
+            height: var(--dice-size);
+            position: relative;
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.6));
+            transform-style: preserve-3d;
+            margin: 0 auto;
+        }
+        
+        .dice-cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transform: translateZ(calc(var(--dice-size) / -2));
+        }
+        
+        .dice-cube__face {
+            position: absolute;
+            width: var(--dice-size);
+            height: var(--dice-size);
+            background: linear-gradient(145deg, rgba(200, 60, 60, 0.95) 0%, rgba(150, 25, 25, 0.95) 100%);
+            border-radius: var(--border-radius);
+            border: var(--edge-border-thickness) solid var(--edge-border-color);
+            box-shadow: inset 0 0 calc(var(--dice-size) / 8) rgba(0,0,0,0.65),
+                        0px 3px 8px rgba(0, 0, 0, 0.3);
+            display: grid;
+            box-sizing: border-box;
+            backface-visibility: hidden;
+            padding: calc(var(--dice-size) / 10);
+            user-select: none;
+            overflow: hidden;
+        }
+        
+        .dice-cube__face::before {
+            content: '';
+            position: absolute;
+            top: -20%;
+            left: -20%;
+            width: 70%;
+            height: 70%;
+            background: radial-gradient(ellipse at center, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0) 70%);
+            transform: rotate(45deg);
+            opacity: 0.8;
+            pointer-events: none;
+        }
+        
+        .dice-dot {
+            width: var(--dot-size);
+            height: var(--dot-size);
+            border-radius: 50%;
+            background-color: #f8f8f8;
+            box-shadow: inset 1px 1px 4px rgba(0,0,0,0.7);
+            justify-self: center;
+            align-self: center;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        .dice-cube__face--front { transform: rotateY(  0deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--back  { transform: rotateY(180deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--right { transform: rotateY( 90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--left  { transform: rotateY(-90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--top   { transform: rotateX( 90deg) translateZ(calc(var(--dice-size) / 2)); }
+        .dice-cube__face--bottom{ transform: rotateX(-90deg) translateZ(calc(var(--dice-size) / 2)); }
+        
+        .dice-cube__face--1 { grid-template-areas: ". . ." ". a ." ". . ."; }
+        .dice-cube__face--1 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--2 { grid-template-areas: "a . ." ". . ." ". . b"; }
+        .dice-cube__face--2 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--2 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--3 { grid-template-areas: "a . ." ". b ." ". . c"; }
+        .dice-cube__face--3 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--3 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--3 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--4 { grid-template-areas: "a . b" ". . ." "c . d"; gap: calc(var(--dot-size) / 3); }
+        .dice-cube__face--4 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--4 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--4 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--4 .dice-dot:nth-child(4) { grid-area: d; }
+        .dice-cube__face--5 { grid-template-areas: "a . b" ". e ." "c . d"; gap: calc(var(--dot-size) / 3); }
+        .dice-cube__face--5 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--5 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--5 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--5 .dice-dot:nth-child(4) { grid-area: d; }
+        .dice-cube__face--5 .dice-dot:nth-child(5) { grid-area: e; }
+        .dice-cube__face--6 { grid-template-areas: "a . d" "b . e" "c . f"; gap: calc(var(--dot-size) / 3); }
+        .dice-cube__face--6 .dice-dot:nth-child(1) { grid-area: a; }
+        .dice-cube__face--6 .dice-dot:nth-child(2) { grid-area: b; }
+        .dice-cube__face--6 .dice-dot:nth-child(3) { grid-area: c; }
+        .dice-cube__face--6 .dice-dot:nth-child(4) { grid-area: d; }
+        .dice-cube__face--6 .dice-dot:nth-child(5) { grid-area: e; }
+        .dice-cube__face--6 .dice-dot:nth-child(6) { grid-area: f; }
+        
+        .dice-scene.is-smoking::before,
+        .dice-scene.is-smoking::after {
+            content: '';
+            position: absolute;
+            width: 150%;
+            height: 150%;
+            top: -25%;
+            left: -25%;
+            background: radial-gradient(ellipse at center, var(--smoke-color-2) 10%, var(--smoke-color-1) 50%, transparent 70%);
+            border-radius: 50%;
+            filter: blur(25px);
+            opacity: 0.7;
+            transform: scale(1);
+            animation: smokePulse 1.5s ease-in-out infinite alternate;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        @keyframes smokePulse {
+            0%, 100% { transform: scale(1.1); opacity: 0.6; }
+            50% { transform: scale(1.3); opacity: 0.8; }
+        }
     </style>
 </head>
 <body>
@@ -848,20 +1026,59 @@
                 <div class="game-board" id="gameBoard">
                     <div class="grid-background"></div>
                     
-                    <!-- Paths -->
+                    <!-- Paths for 10-node layout -->
+                    <!-- Left vertical path: 10 <-> 9 <-> 8 -->
                     <div class="path path-vertical-left"></div>
-                    <div class="path path-horizontal"></div>
+                    <!-- Right vertical path: 5 <-> 6 <-> 7 -->
                     <div class="path path-vertical-right"></div>
-                    <div class="path path-vertical-middle-left"></div>
-                    <div class="path path-vertical-middle-center"></div>
-                    <div class="path path-vertical-middle-right"></div>
-                    <div class="path path-vertical-top-left"></div>
+                    <!-- Horizontal path: 9 <-> 4 <-> 1 <-> 6 -->
+                    <div class="path path-horizontal-extended"></div>
+                    <!-- Upper vertical segment: 4 <-> 3 (up from horizontal, left side) -->
+                    <div class="path path-vertical-upper-center"></div>
+                    <!-- Lower vertical segment: 1 <-> 2 (down from horizontal, right side) -->
+                    <div class="path path-vertical-lower-center"></div>
                     
                     <!-- Stones will be added dynamically -->
                 </div>
             </div>
             
             <div class="game-status" id="gameStatus"></div>
+            <!-- Dice modal to decide who starts -->
+            <div id="diceModal" class="modal">
+                <div class="modal-content" style="max-width: 800px;">
+                    <div class="modal-header">İlk Oynayacaq Oyunçu</div>
+                    <div id="diceInfo" style="color:#ccc; text-align:center; margin-bottom:20px;">Hər iki oyunçu zar atsın.</div>
+                    
+                    <!-- Dice containers for both players -->
+                    <div style="display:flex; gap:40px; justify-content:center; align-items:center; margin-bottom:20px; flex-wrap:wrap;">
+                        <!-- Player 1 (Orange) Dice -->
+                        <div style="min-width:200px; text-align:center;">
+                            <div style="color:#ff9800; font-weight:bold; font-size:18px; margin-bottom:10px;" id="diceP1Name">Turuncu</div>
+                            <div id="diceP1Container" style="width:150px; height:150px; margin:0 auto; position:relative;">
+                                <!-- 3D Dice will be inserted here -->
+                            </div>
+                            <div id="diceP1Val" style="font-size:24px; color:#fff; font-weight:bold; margin-top:10px;">-</div>
+                            <div id="diceP1Status" style="font-size:14px; color:#888; margin-top:5px;">Gözlənir...</div>
+                        </div>
+                        
+                        <!-- Player 2 (Blue) Dice -->
+                        <div style="min-width:200px; text-align:center;">
+                            <div style="color:#2196F3; font-weight:bold; font-size:18px; margin-bottom:10px;" id="diceP2Name">Mavi</div>
+                            <div id="diceP2Container" style="width:150px; height:150px; margin:0 auto; position:relative;">
+                                <!-- 3D Dice will be inserted here -->
+                            </div>
+                            <div id="diceP2Val" style="font-size:24px; color:#fff; font-weight:bold; margin-top:10px;">-</div>
+                            <div id="diceP2Status" style="font-size:14px; color:#888; margin-top:5px;">Gözlənir...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Roll button and result -->
+                    <div style="display:flex; flex-direction:column; gap:12px; justify-content:center; align-items:center;">
+                        <button class="modal-btn modal-btn-primary" id="rollDiceBtn" style="min-width:200px;">Zarı At</button>
+                        <div id="diceResult" style="color:#00bcd4; font-weight:bold; font-size:18px; text-align:center; min-height:24px;"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -869,6 +1086,7 @@
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <!-- Three.js for transition animations -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="three_stones_core.js?v=1"></script>
     <script src="../../assets/components/profile/profile.js?v=1"></script>
     <script src="game.js?v=1"></script>
 </body>

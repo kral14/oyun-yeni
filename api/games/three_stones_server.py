@@ -33,6 +33,26 @@ players = {}  # {player_id: {username, room_code, color}}
 # Disconnect timers - give players time to reconnect before removing them
 disconnect_timers = {}  # {player_id: timer}
 
+# Board graph (nodes and edges for 10-node layout)
+# 10-node board structure:
+# Left side: 10 (top), 9 (middle), 8 (bottom)
+# Right side: 5 (top), 6 (middle), 7 (bottom)
+# Center horizontal: 9 <-> 4 <-> 1 <-> 6
+# Upper center: 4 <-> 3 (up from horizontal, left side)
+# Lower center: 1 <-> 2 (down from horizontal, right side)
+BOARD_NODES = {
+    '10': {'id': '10', 'neighbors': ['9']},
+    '9': {'id': '9', 'neighbors': ['10', '8', '4']},
+    '8': {'id': '8', 'neighbors': ['9']},
+    '5': {'id': '5', 'neighbors': ['6']},
+    '6': {'id': '6', 'neighbors': ['5', '7', '1']},
+    '7': {'id': '7', 'neighbors': ['6']},
+    '4': {'id': '4', 'neighbors': ['9', '1', '3']},
+    '1': {'id': '1', 'neighbors': ['4', '6', '2']},
+    '3': {'id': '3', 'neighbors': ['4']},
+    '2': {'id': '2', 'neighbors': ['1']}
+}
+
 def initialize(sio, pool, logging_funcs):
     """Initialize the Three Stones game server with dependencies"""
     global socketio, db_pool, log_info, log_error, log_debug, log_warning
@@ -54,6 +74,9 @@ def register_handlers():
     socketio.on_event('get_lobby_list', handle_get_lobby_list)
     socketio.on_event('start_game', handle_start_game)
     socketio.on_event('make_move', handle_make_move)
+    # Dice roll to decide who starts
+    socketio.on_event('roll_dice', handle_roll_dice)
+    socketio.on_event('request_roll', handle_request_roll)
 
 def generate_room_code():
     """Generate a random 6-character room code"""
@@ -358,10 +381,27 @@ def get_lobby_list():
                         continue
                 
                 # Count active players (players that are still connected)
+                # Check both memory and database - use memory as source of truth for active players
                 active_players_count = 0
-                if room.get('players'):
+                if room_code_db in rooms:
+                    # Use memory room if exists (most up-to-date)
+                    memory_room = rooms[room_code_db]
+                    if memory_room.get('players'):
+                        for color, pid in memory_room['players'].items():
+                            if pid in players and players[pid].get('room_code') == room_code_db:
+                                active_players_count += 1
+                elif room.get('players'):
+                    # Fallback to loaded room if not in memory
                     for color, pid in room['players'].items():
                         if pid in players and players[pid].get('room_code') == room_code_db:
+                            active_players_count += 1
+                else:
+                    # Check database socket IDs - but only count if they're actually connected
+                    if orange_socket_id and orange_socket_id in players:
+                        if players[orange_socket_id].get('room_code') == room_code_db:
+                            active_players_count += 1
+                    if blue_socket_id and blue_socket_id in players:
+                        if players[blue_socket_id].get('room_code') == room_code_db:
                             active_players_count += 1
                 
                 # Get creator username if available
@@ -404,10 +444,11 @@ def get_lobby_list():
     # Also include rooms from memory that might not be in database yet
     for room_code, room in rooms.items():
         if room_code not in db_room_codes:
-            # Count active players
+            # Count active players (only connected players)
             active_players_count = 0
             if room.get('players'):
                 for color, pid in room['players'].items():
+                    # Only count if player is actually connected and in this room
                     if pid in players and players[pid].get('room_code') == room_code:
                         active_players_count += 1
             
@@ -713,24 +754,65 @@ def handle_leave_room(data):
         })
         
         # Reset game if started (so room can be reused)
-        if room.get('started'):
-            room['started'] = False
-            room['game_state'] = None
-            # Update database to mark game as not started
+        # Always reset game state when player leaves, even if game wasn't started yet
+        room['started'] = False
+        room['game_state'] = None
+        room['dice'] = {}  # Reset dice state
+        
+        # Update database to mark game as not started and clear game state
+        if db_pool:
+            try:
+                conn = db_pool.getconn()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE three_stones_rooms 
+                    SET started = FALSE, game_state = NULL, started_at = NULL
+                    WHERE room_code = %s
+                """, (room_code,))
+                conn.commit()
+                cursor.close()
+                db_pool.putconn(conn)
+                log_info("Game state reset in database", {'room_code': room_code})
+            except Exception as e:
+                log_error("Error resetting game", e, {'room_code': room_code})
+                if conn:
+                    db_pool.putconn(conn)
+        
+        # Update room player in database (remove player) - ALWAYS update, even if room is empty
+        if color == 'orange':
             if db_pool:
                 try:
                     conn = db_pool.getconn()
                     cursor = conn.cursor()
                     cursor.execute("""
                         UPDATE three_stones_rooms 
-                        SET started = FALSE, game_state = NULL, started_at = NULL
+                        SET orange_player_id = NULL, orange_socket_id = NULL
                         WHERE room_code = %s
                     """, (room_code,))
                     conn.commit()
                     cursor.close()
                     db_pool.putconn(conn)
+                    log_info("Orange player removed from database", {'room_code': room_code})
                 except Exception as e:
-                    log_error("Error resetting game", e, {'room_code': room_code})
+                    log_error("Error updating room player", e, {'room_code': room_code, 'color': 'orange'})
+                    if conn:
+                        db_pool.putconn(conn)
+        elif color == 'blue':
+            if db_pool:
+                try:
+                    conn = db_pool.getconn()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE three_stones_rooms 
+                        SET blue_player_id = NULL, blue_socket_id = NULL
+                        WHERE room_code = %s
+                    """, (room_code,))
+                    conn.commit()
+                    cursor.close()
+                    db_pool.putconn(conn)
+                    log_info("Blue player removed from database", {'room_code': room_code})
+                except Exception as e:
+                    log_error("Error updating room player", e, {'room_code': room_code, 'color': 'blue'})
                     if conn:
                         db_pool.putconn(conn)
         
@@ -741,47 +823,19 @@ def handle_leave_room(data):
                 'room_code': room_code,
                 'creator': room.get('creator')
             })
-            # Broadcast lobby update to show empty room
-            socketio.emit('lobby_list', {'rooms': get_lobby_list()})
-        else:
-            # Update room player in database (remove player)
-            if color == 'orange':
-                if db_pool:
-                    try:
-                        conn = db_pool.getconn()
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE three_stones_rooms 
-                            SET orange_player_id = NULL, orange_socket_id = NULL
-                            WHERE room_code = %s
-                        """, (room_code,))
-                        conn.commit()
-                        cursor.close()
-                        db_pool.putconn(conn)
-                    except Exception as e:
-                        log_error("Error updating room player", e, {'room_code': room_code, 'color': 'orange'})
-                        if conn:
-                            db_pool.putconn(conn)
-            elif color == 'blue':
-                if db_pool:
-                    try:
-                        conn = db_pool.getconn()
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE three_stones_rooms 
-                            SET blue_player_id = NULL, blue_socket_id = NULL
-                            WHERE room_code = %s
-                        """, (room_code,))
-                        conn.commit()
-                        cursor.close()
-                        db_pool.putconn(conn)
-                    except Exception as e:
-                        log_error("Error updating room player", e, {'room_code': room_code, 'color': 'blue'})
-                        if conn:
-                            db_pool.putconn(conn)
-            
-            # Broadcast lobby update
-            socketio.emit('lobby_list', {'rooms': get_lobby_list()})
+        
+        # ALWAYS broadcast lobby update to all clients (not just room)
+        # This ensures lobby list is updated immediately when player leaves
+        def broadcast_lobby_update():
+            time.sleep(0.1)  # Small delay to ensure database is updated
+            lobby_list = get_lobby_list()
+            socketio.emit('lobby_list', {'rooms': lobby_list})
+            log_info("Lobby list broadcasted after player left", {
+                'room_code': room_code,
+                'lobby_rooms_count': len(lobby_list)
+            })
+        
+        threading.Thread(target=broadcast_lobby_update, daemon=True).start()
         
         # Send confirmation to leaving player that they left successfully
         emit('room_left', {'roomCode': room_code})
@@ -1144,14 +1198,32 @@ def handle_join_room(data):
             'started': room.get('started', False)
         })
     
-    # Check if room is full
-    if len(room['players']) >= 2:
-        log_warning("Room is full, cannot join", {
+    # Clean up disconnected players from room['players'] dict FIRST
+    # This ensures room['players'] only contains active players before checking if room is full
+    if room.get('players'):
+        disconnected_colors = []
+        for color, pid in room['players'].items():
+            if pid not in players or players[pid].get('room_code') != room_code:
+                disconnected_colors.append(color)
+        for color in disconnected_colors:
+            del room['players'][color]
+            log_info("Removed disconnected player from room", {
+                'room_code': room_code,
+                'color': color
+            })
+    
+    # Check if room is full - only count ACTIVE players (connected players)
+    # After cleanup, room['players'] should only contain active players
+    active_players_count = len(room.get('players', {}))
+    
+    if active_players_count >= 2:
+        log_warning("Room is full (active players), cannot join", {
             'room_code': room_code,
             'player_id': player_id,
             'username': username,
-            'current_players_count': len(room['players']),
-            'players': list(room['players'].keys())
+            'active_players_count': active_players_count,
+            'room_players_dict': room.get('players', {}),
+            'room_players_keys': list(room.get('players', {}).keys())
         })
         emit('error', {'message': 'Otaq doludur'})
         return
@@ -1250,35 +1322,35 @@ def handle_join_room(data):
         'room_players_count': len(room['players'])
     })
     
-    # Auto-start game when second player joins
+    # When second player joins, initialize game state but don't start yet
+    # Wait for dice roll to determine who starts
     if len(room['players']) == 2:
-        # Initialize game state
+        # Initialize game state (stones will be placed after dice roll)
         room['game_state'] = {
             'orangeStones': [
-                {'id': 1, 'x': 110, 'y': 100, 'reachedGoal': False},
-                {'id': 2, 'x': 110, 'y': 300, 'reachedGoal': False},
-                {'id': 3, 'x': 110, 'y': 500, 'reachedGoal': False}
+                {'id': 'orange-1', 'nodeId': 'LT', 'reachedGoal': False, 'number': 1},
+                {'id': 'orange-2', 'nodeId': 'LM', 'reachedGoal': False, 'number': 2},
+                {'id': 'orange-3', 'nodeId': 'LB', 'reachedGoal': False, 'number': 3}
             ],
             'blueStones': [
-                {'id': 1, 'x': 490, 'y': 100, 'reachedGoal': False},
-                {'id': 2, 'x': 490, 'y': 300, 'reachedGoal': False},
-                {'id': 3, 'x': 490, 'y': 500, 'reachedGoal': False}
+                {'id': 'blue-1', 'nodeId': 'RT', 'reachedGoal': False, 'number': 1},
+                {'id': 'blue-2', 'nodeId': 'RM', 'reachedGoal': False, 'number': 2},
+                {'id': 'blue-3', 'nodeId': 'RB', 'reachedGoal': False, 'number': 3}
             ],
-            'currentTurn': 'orange',
+            'currentTurn': 'orange',  # Will be set after dice roll
             'gameOver': False,
             'winner': None
         }
-        room['started'] = True
+        room['started'] = False  # Don't mark as started yet - wait for dice roll
+        room['dice'] = {}  # Initialize dice dict for rolls
         
-        # Mark game as started in database
-        start_game_in_db(room_code)
-        
-        # Notify both players that game has started
+        # Notify both players to show dice modal
         socketio.emit('game_start', {
-            'gameState': room['game_state']
+            'gameState': room['game_state'],
+            'waitForDice': True  # Signal that dice roll is needed
         }, room=room_code)
         
-        log_info("Game started automatically", {'room_code': room_code, 'players': len(room['players'])})
+        log_info("Game state initialized, waiting for dice roll", {'room_code': room_code, 'players': len(room['players'])})
     
     # Broadcast lobby update to all clients
     def broadcast_lobby_update():
@@ -1500,30 +1572,121 @@ def handle_rejoin_room(data):
         'players_info': players_info,
         'room_players_count': len(room['players'])
     })
+
+def handle_roll_dice(data):
+    """Handle dice rolls from players; broadcast to room and decide starter when both rolled"""
+    player_id = request.sid
+    try:
+        roll = int(data.get('roll', 0) or 0)
+    except Exception:
+        roll = 0
+    username = players.get(player_id, {}).get('username', 'Player')
+    player_color = players.get(player_id, {}).get('color')
+    room_code = players.get(player_id, {}).get('room_code')
+    if not room_code or room_code not in rooms:
+        emit('error', {'message': 'Otaq tapılmadı'})
+        return
+    room = rooms[room_code]
+    if 'dice' not in room:
+        room['dice'] = {}
+    # Server-side clamp/randomize
+    if roll < 1 or roll > 6:
+        roll = random.randint(1, 6)
+    room['dice'][player_id] = roll
     
-    # Broadcast lobby update to all clients
-    def broadcast_lobby_update():
-        time.sleep(0.1)
-        lobby_list = get_lobby_list()
-        log_info("Broadcasting lobby list update after rejoin", {
-            'room_code': room_code,
-            'lobby_rooms_count': len(lobby_list)
-        })
-        socketio.emit('lobby_list', {'rooms': lobby_list})
-    threading.Thread(target=broadcast_lobby_update, daemon=True).start()
+    # Broadcast roll to room with player color
+    socketio.emit('dice_roll', {
+        'username': username,
+        'roll': roll,
+        'color': player_color
+    }, room=room_code)
     
-    log_info("=== PLAYER REJOINED ROOM ===", {
+    log_info("Dice roll received", {
         'room_code': room_code,
         'player_id': player_id,
         'username': username,
         'color': player_color,
-        'is_creator': is_creator,
-        'total_players_in_room': len(room['players']),
-        'room_players': list(room['players'].keys()),
-        'room_started': room.get('started', False),
-        'total_rooms_in_memory': len(rooms),
-        'total_players_in_memory': len(players)
+        'roll': roll
     })
+    
+    # If both players present and rolled
+    if len(room.get('players', {})) == 2:
+        orange_id = room['players'].get('orange')
+        blue_id = room['players'].get('blue')
+        if orange_id in room['dice'] and blue_id in room['dice']:
+            o = room['dice'][orange_id]
+            b = room['dice'][blue_id]
+            if o == b:
+                # Tie - reset dice and ask to roll again
+                room['dice'] = {}
+                socketio.emit('dice_result', {
+                    'rolls': {'orange': o, 'blue': b},
+                    'starter': None,
+                    'tie': True
+                }, room=room_code)
+                log_info("Dice tie - resetting", {'room_code': room_code, 'orange': o, 'blue': b})
+                return
+            
+            # Determine starter
+            starter = 'orange' if o > b else 'blue'
+            
+            # Update game state
+            if room.get('game_state'):
+                room['game_state']['currentTurn'] = starter
+                room['started'] = True  # Mark game as started after dice roll
+                
+                # Save to database
+                if db_pool:
+                    try:
+                        conn = db_pool.getconn()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE three_stones_rooms 
+                            SET started = TRUE, started_at = %s, game_state = %s
+                            WHERE room_code = %s
+                        """, (datetime.now(UTC), json.dumps(room['game_state']), room_code))
+                        conn.commit()
+                        cursor.close()
+                        db_pool.putconn(conn)
+                    except Exception as e:
+                        log_error("Error updating game state after dice", e, {'room_code': room_code})
+                        if conn:
+                            db_pool.putconn(conn)
+            
+            # Send dice result with both rolls and starter
+            socketio.emit('dice_result', {
+                'rolls': {'orange': o, 'blue': b},
+                'starter': starter
+            }, room=room_code)
+            
+            # Send updated game state
+            if room.get('game_state'):
+                socketio.emit('game_state', {'gameState': room['game_state']}, room=room_code)
+            
+            log_info("Dice result determined", {
+                'room_code': room_code,
+                'orange_roll': o,
+                'blue_roll': b,
+                'starter': starter
+            })
+
+def handle_request_roll(data):
+    """Authoritative server-side dice roll (no client-provided value)"""
+    player_id = request.sid
+    room_code = data.get('roomCode', '')
+    
+    if player_id not in players:
+        emit('error', {'message': 'Oyunçu tapılmadı'})
+        return
+    
+    player_info = players[player_id]
+    if player_info.get('room_code') != room_code:
+        emit('error', {'message': 'Otaq uyğun deyil'})
+        return
+    
+    # Generate random roll and process it
+    roll = random.randint(1, 6)
+    handle_roll_dice({'roll': roll})
 
 def handle_get_lobby_list(data):
     """Send lobby list to client"""
@@ -1566,14 +1729,14 @@ def handle_start_game(data):
     # Initialize game state
     room['game_state'] = {
         'orangeStones': [
-            {'id': 'orange-0', 'x': 80, 'y': 80, 'reachedGoal': False},
-            {'id': 'orange-1', 'x': 80, 'y': 300, 'reachedGoal': False},
-            {'id': 'orange-2', 'x': 80, 'y': 520, 'reachedGoal': False}
+            {'id': 'orange-1', 'nodeId': '10', 'reachedGoal': False, 'number': 1},
+            {'id': 'orange-2', 'nodeId': '9', 'reachedGoal': False, 'number': 2},
+            {'id': 'orange-3', 'nodeId': '8', 'reachedGoal': False, 'number': 3}
         ],
         'blueStones': [
-            {'id': 'blue-0', 'x': 470, 'y': 80, 'reachedGoal': False},
-            {'id': 'blue-1', 'x': 470, 'y': 300, 'reachedGoal': False},
-            {'id': 'blue-2', 'x': 470, 'y': 520, 'reachedGoal': False}
+            {'id': 'blue-1', 'nodeId': '5', 'reachedGoal': False, 'number': 1},
+            {'id': 'blue-2', 'nodeId': '6', 'reachedGoal': False, 'number': 2},
+            {'id': 'blue-3', 'nodeId': '7', 'reachedGoal': False, 'number': 3}
         ],
         'currentTurn': 'orange',
         'gameOver': False,
@@ -1612,8 +1775,12 @@ def handle_make_move(data):
         return
     
     stone_id = data.get('stoneId')
+    to_node_id = data.get('toNodeId')
     new_x = data.get('x')
     new_y = data.get('y')
+    reached_goal = data.get('reachedGoal', False)
+    game_over = data.get('gameOver', False)
+    winner = data.get('winner')
     
     # Validate and update move
     stones = game_state['orangeStones'] if player_color == 'orange' else game_state['blueStones']
@@ -1623,28 +1790,77 @@ def handle_make_move(data):
         emit('error', {'message': 'Taş tapılmadı'})
         return
     
-    # Update stone position
-    stone['x'] = new_x
-    stone['y'] = new_y
+    # Validate move: check if target node is a neighbor and empty
+    current_node_id = stone.get('nodeId')
+    if not current_node_id or not to_node_id:
+        emit('error', {'message': 'Hərəkət etmək üçün nöqtə seçilməyib'})
+        return
+    
+    # Check if target node is a neighbor (1 step away)
+    current_node = BOARD_NODES.get(current_node_id)
+    if not current_node:
+        emit('error', {'message': 'Cari nöqtə tapılmadı'})
+        return
+    
+    if to_node_id not in current_node['neighbors']:
+        emit('error', {'message': 'Yalnız qonşu boş nöqtəyə hərəkət edə bilərsiniz'})
+        return
+    
+    # Check if target node is empty
+    all_stones = game_state['orangeStones'] + game_state['blueStones']
+    occupied_nodes = {s.get('nodeId') for s in all_stones if s.get('nodeId')}
+    
+    if to_node_id in occupied_nodes:
+        emit('error', {'message': 'Bu nöqtə doludur'})
+        return
+    
+    # Update stone position (use nodeId if provided, otherwise use x,y)
+    if to_node_id:
+        stone['nodeId'] = to_node_id
+    if new_x is not None:
+        stone['x'] = new_x
+    if new_y is not None:
+        stone['y'] = new_y
     
     # Check if stone reached goal
-    if player_color == 'orange':
-        # Orange goal: right side (x > 400)
-        if new_x > 400:
-            stone['reachedGoal'] = True
-    else:
-        # Blue goal: left side (x < 200)
-        if new_x < 200:
-            stone['reachedGoal'] = True
+    # Orange goal: 5, 6, 7 (right side) | Blue goal: 10, 9, 8 (left side)
+    goal_nodes = ['5', '6', '7'] if player_color == 'orange' else ['10', '9', '8']
+    if to_node_id and to_node_id in goal_nodes:
+        stone['reachedGoal'] = True
+    elif reached_goal is not None:
+        stone['reachedGoal'] = reached_goal
     
-    # Check win condition
-    stones_reached = sum(1 for s in stones if s['reachedGoal'])
-    if stones_reached >= 3:
+    # Check win condition - all stones must reach goal
+    all_stones_reached = all(s.get('reachedGoal', False) for s in stones)
+    if all_stones_reached:
         game_state['gameOver'] = True
         game_state['winner'] = player_color
+    elif game_over:
+        game_state['gameOver'] = game_over
+        if winner:
+            game_state['winner'] = winner
     
-    # Switch turn
-    game_state['currentTurn'] = 'blue' if player_color == 'orange' else 'orange'
+    # Switch turn only if game is not over
+    if not game_state['gameOver']:
+        game_state['currentTurn'] = 'blue' if player_color == 'orange' else 'orange'
+    
+    # Save to database
+    if db_pool:
+        try:
+            conn = db_pool.getconn()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE three_stones_rooms 
+                SET game_state = %s
+                WHERE room_code = %s
+            """, (json.dumps(game_state), room_code))
+            conn.commit()
+            cursor.close()
+            db_pool.putconn(conn)
+        except Exception as e:
+            log_error("Error updating game state after move", e, {'room_code': room_code})
+            if conn:
+                db_pool.putconn(conn)
     
     # Broadcast updated game state
     socketio.emit('move_made', {

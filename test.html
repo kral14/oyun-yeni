@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <title>3 Taş Oyunu</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, sans-serif;
+            background: #f2f2f2;
+        }
+
+        .game {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 14px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            min-width: 320px;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        #board {
+            margin: 15px auto 10px;
+            display: grid;
+            grid-template-columns: repeat(3, 80px);
+            grid-template-rows: repeat(3, 80px);
+            gap: 4px;
+        }
+
+        .cell {
+            width: 80px;
+            height: 80px;
+            border: 2px solid #555;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 38px;
+            cursor: pointer;
+            background: #fafafa;
+            transition: box-shadow 0.15s, transform 0.1s;
+        }
+
+        .cell:hover {
+            box-shadow: 0 0 0 2px #ddd inset;
+        }
+
+        .cell.highlight {
+            box-shadow: 0 0 0 3px gold inset;
+            transform: scale(1.02);
+        }
+
+        #phase {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        #status {
+            margin-bottom: 6px;
+        }
+
+        button {
+            margin-top: 10px;
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 14px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            background: #3498db;
+            color: #fff;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+    </style>
+</head>
+<body>
+<div class="game">
+    <h2>3 Taş Oyunu</h2>
+    <div id="phase"></div>
+    <div id="status"></div>
+    <div id="board"></div>
+    <button id="resetBtn">Yenidən başla</button>
+</div>
+
+<script>
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const phaseEl = document.getElementById("phase");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let board;                      // 0..8 xanalarda kim var
+    let currentPlayer;              // "X" (narıncı) və ya "O" (mavi)
+    let placed;                     // hər oyunçu neçə daş yerləşdirib
+    let selectedIndex;              // hərəkət üçün seçilmiş daşın indeksi
+
+    // 3x3 lövhədə qonşuluq (hərəkət yalnız qonşu xanalara icazəlidir)
+    const neighbors = {
+        0: [1, 3, 4],
+        1: [0, 2, 4],
+        2: [1, 4, 5],
+        3: [0, 4, 6],
+        4: [0, 1, 2, 3, 5, 6, 7, 8],
+        5: [2, 4, 8],
+        6: [3, 4, 7],
+        7: [4, 6, 8],
+        8: [4, 5, 7]
+    };
+
+    const winLines = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],   // sətirlər
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],   // sütunlar
+        [0, 4, 8], [2, 4, 6]               // diaqonallar
+    ];
+
+    function init() {
+        board = Array(9).fill(null);
+        currentPlayer = "X";  // X = narıncı, O = mavi
+        placed = { X: 0, O: 0 };
+        selectedIndex = null;
+        renderBoard();
+        updateText();
+    }
+
+    function currentPhase() {
+        if (placed.X < 3 || placed.O < 3) return "placing";
+        return "moving";
+    }
+
+    function renderBoard() {
+        boardEl.innerHTML = "";
+        board.forEach((value, idx) => {
+            const cell = document.createElement("div");
+            cell.className = "cell";
+            if (idx === selectedIndex) {
+                cell.classList.add("highlight");
+            }
+            cell.dataset.index = idx;
+
+            if (value === "X") {
+                cell.textContent = "●";
+                cell.style.color = "#e67e22";     // narıncı
+            } else if (value === "O") {
+                cell.textContent = "●";
+                cell.style.color = "#3498db";     // mavi
+            }
+
+            cell.addEventListener("click", onCellClick);
+            boardEl.appendChild(cell);
+        });
+    }
+
+    function updateText(message) {
+        if (!message) {
+            phaseEl.textContent =
+                currentPhase() === "placing"
+                    ? "Faza: daş yerləşdirmə"
+                    : "Faza: daş hərəkəti";
+
+            statusEl.textContent =
+                "Növbə: " + (currentPlayer === "X" ? "Narıncı oyunçu" : "Mavi oyunçu");
+        } else {
+            statusEl.textContent = message;
+        }
+    }
+
+    function onCellClick(e) {
+        const idx = parseInt(e.currentTarget.dataset.index, 10);
+
+        if (checkWinner()) return; // oyun bitibsə heç nə etmə
+
+        if (currentPhase() === "placing") {
+            // yerləşdirmə mərhələsi
+            if (board[idx] !== null) return; // dolu xana
+
+            board[idx] = currentPlayer;
+            placed[currentPlayer]++;
+
+            if (checkWinner()) {
+                gameOver("Qalib: " + playerName(currentPlayer));
+                renderBoard();
+                return;
+            }
+
+            switchPlayer();
+        } else {
+            // hərəkət mərhələsi
+            if (selectedIndex === null) {
+                // daş seçirik
+                if (board[idx] !== currentPlayer) return;
+                selectedIndex = idx;
+            } else {
+                // eyni daşa klik → seçimi ləğv et
+                if (idx === selectedIndex) {
+                    selectedIndex = null;
+                } else if (board[idx] === null &&
+                    neighbors[selectedIndex].includes(idx)) {
+                    // qonşu boş xana → hərəkət et
+                    board[idx] = currentPlayer;
+                    board[selectedIndex] = null;
+                    selectedIndex = null;
+
+                    if (checkWinner()) {
+                        gameOver("Qalib: " + playerName(currentPlayer));
+                        renderBoard();
+                        return;
+                    }
+
+                    switchPlayer();
+                } else {
+                    // keçərsiz hərəkət
+                    return;
+                }
+            }
+        }
+
+        renderBoard();
+        updateText();
+    }
+
+    function playerName(p) {
+        return p === "X" ? "Narıncı oyunçu" : "Mavi oyunçu";
+    }
+
+    function switchPlayer() {
+        currentPlayer = currentPlayer === "X" ? "O" : "X";
+    }
+
+    function checkWinner() {
+        return winLines.some(line => {
+            const [a, b, c] = line;
+            return board[a] && board[a] === board[b] && board[a] === board[c];
+        });
+    }
+
+    function gameOver(msg) {
+        updateText(msg + "  (Yenidən başlamaq üçün düyməyə bas.)");
+    }
+
+    resetBtn.addEventListener("click", init);
+
+    init();
+</script>
+</body>
+</html>

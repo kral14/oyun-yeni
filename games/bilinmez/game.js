@@ -16,12 +16,43 @@ class ThreeStonesGame {
             gameOver: false,
             winner: null
         };
+        
+        // Board graph (nodes and edges for 10-node layout)
+        // 10-node board structure:
+        // Left side: 10 (top), 9 (middle), 8 (bottom)
+        // Right side: 5 (top), 6 (middle), 7 (bottom)
+        // Center horizontal: 9 <-> 4 <-> 1 <-> 6
+        // Upper center: 4 <-> 3 (up from horizontal, left side)
+        // Lower center: 1 <-> 2 (down from horizontal, right side)
+        // Connections: 
+        //   Left vertical: 10 <-> 9 <-> 8
+        //   Right vertical: 5 <-> 6 <-> 7
+        //   Horizontal: 9 <-> 4 <-> 1 <-> 6
+        //   Upper vertical: 4 <-> 3
+        //   Lower vertical: 1 <-> 2
+        // Orange starts at: 10, 9, 8 (left side)
+        // Blue starts at: 5, 6, 7 (right side)
+        // Orange goal: 5, 6, 7 (right side)
+        // Blue goal: 10, 9, 8 (left side)
+        this.boardNodes = {
+            '10': { id: '10', x: 80,  y: 80,  neighbors: ['9'] },
+            '9': { id: '9', x: 80,  y: 330, neighbors: ['10', '8', '4'] },
+            '8': { id: '8', x: 80,  y: 520, neighbors: ['9'] },
+            '5': { id: '5', x: 520, y: 80,  neighbors: ['6'] },
+            '6': { id: '6', x: 520, y: 330, neighbors: ['5', '7', '1'] },
+            '7': { id: '7', x: 520, y: 520, neighbors: ['6'] },
+            '4': { id: '4', x: 200, y: 330, neighbors: ['9', '1', '3'] },
+            '1': { id: '1', x: 400, y: 330, neighbors: ['4', '6', '2'] },
+            '3': { id: '3', x: 200, y: 200, neighbors: ['4'] },
+            '2': { id: '2', x: 400, y: 460, neighbors: ['1'] }
+        };
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.lobbyRefreshInterval = null;
         this.transitionAnimation = null; // Three.js animation instance
         this.isLeavingRoom = false; // Flag to prevent double animation when leaving room
         this.isTransitioning = false; // Flag to prevent multiple simultaneous transitions
+        this.diceResolved = false; // First-turn dice finished
         
         this.init();
     }
@@ -490,6 +521,15 @@ class ThreeStonesGame {
                 this.gameState = data.gameState;
                 this.updateGameBoard();
                 break;
+
+            case 'dice_roll':
+                // Another player's roll broadcast
+                this.showDiceRoll(data.username || '', data.roll, data.color);
+                break;
+            case 'dice_result':
+                // Both rolls and starter announced
+                this.applyDiceResult(data);
+                break;
                 
             case 'move_made':
                 this.gameState = data.gameState;
@@ -624,6 +664,22 @@ class ThreeStonesGame {
             
             lobbyList.appendChild(roomCard);
         });
+    }
+
+    updatePlayers(playersMap) {
+        // Persist names by color for UI and dice labels
+        this.playersByColor = { ...(playersMap || {}) };
+        // Existing UI updates (names in header/room waiting screen)
+        const orangeName = (playersMap && playersMap.orange) || '-';
+        const blueName = (playersMap && playersMap.blue) || '-';
+        const po = document.getElementById('playerOrangeName');
+        const pb = document.getElementById('playerBlueName');
+        if (po) po.textContent = orangeName;
+        if (pb) pb.textContent = blueName;
+        const rwo = document.getElementById('roomWaitingOrange');
+        const rwb = document.getElementById('roomWaitingBlue');
+        if (rwo) rwo.textContent = orangeName;
+        if (rwb) rwb.textContent = blueName;
     }
     
     showCreateRoomModal() {
@@ -1489,10 +1545,14 @@ class ThreeStonesGame {
             messageDiv.style.display = 'none';
         }
         
+        // Wire dice UI
+        this.setupDiceUI();
+
         // Use game state from server if available, otherwise initialize
         if (this.gameState && this.gameState.orangeStones && this.gameState.blueStones) {
-            // Server sent game state, use it
+            // Server sent game state, normalize to node-based format if needed
             console.log('Using game state from server');
+            this.normalizeGameStateToNodes();
         } else {
             // Initialize stones positions if not provided
             this.initializeStones();
@@ -1502,55 +1562,168 @@ class ThreeStonesGame {
         this.isMyTurn = this.playerColor === this.gameState.currentTurn;
         
         this.updateGameBoard();
+        // Open dice modal for deciding starter if not decided yet
+        if (!this.diceResolved) {
+            this.openDiceModal();
+        }
+    }
+
+    // Map legacy x,y stones coming from server to nearest board nodes
+    normalizeGameStateToNodes() {
+        // Map old node IDs to new node IDs
+        const nodeIdMap = {
+            'LT': '10',  // Left Top -> 10
+            'LM': '9',   // Left Middle -> 9
+            'LB': '8',   // Left Bottom -> 8
+            'RT': '5',   // Right Top -> 5
+            'RM': '6',   // Right Middle -> 6
+            'RB': '7',   // Right Bottom -> 7
+            'C_UL': '3', // Center Upper Left -> 3
+            'C_DR': '2'  // Center Down Right -> 2
+        };
+        
+        const toNode = (stone) => {
+            // Map old node ID to new node ID if exists
+            let newNodeId = stone.nodeId;
+            if (nodeIdMap[stone.nodeId]) {
+                newNodeId = nodeIdMap[stone.nodeId];
+                console.log(`[DEBUG] Mapped old nodeId "${stone.nodeId}" to new nodeId "${newNodeId}"`);
+            } else if (!this.boardNodes[stone.nodeId] && stone.nodeId) {
+                // If node ID doesn't exist in new board, try to find nearest
+                newNodeId = this.findNearestNodeId(stone.x || 0, stone.y || 0);
+                console.log(`[DEBUG] NodeId "${stone.nodeId}" not found, mapped to nearest: "${newNodeId}"`);
+            } else if (!stone.nodeId) {
+                // If no nodeId, find nearest
+                newNodeId = this.findNearestNodeId(stone.x || 0, stone.y || 0);
+            }
+            
+            return {
+                id: stone.id?.toString().startsWith('orange') || stone.id?.toString().startsWith('blue') ? stone.id : `${this.playerColor || 'stone'}-${stone.id || 0}`,
+                nodeId: newNodeId,
+                number: stone.number || parseInt(stone.id, 10) || 0,
+                reachedGoal: !!stone.reachedGoal
+            };
+        };
+        if (Array.isArray(this.gameState.orangeStones)) {
+            this.gameState.orangeStones = this.gameState.orangeStones.map(toNode);
+        }
+        if (Array.isArray(this.gameState.blueStones)) {
+            this.gameState.blueStones = this.gameState.blueStones.map(toNode);
+        }
+    }
+
+    findNearestNodeId(x, y) {
+        let best = null;
+        let bestDist = Infinity;
+        const entries = Object.values(this.boardNodes);
+        for (const n of entries) {
+            const dx = n.x - x;
+            const dy = n.y - y;
+            const d2 = dx*dx + dy*dy;
+            if (d2 < bestDist) {
+                bestDist = d2;
+                best = n.id;
+            }
+        }
+        return best || '9';
     }
     
     initializeStones() {
-        // Orange stones start positions (left side)
-        const orangePositions = [
-            { x: 80, y: 80 },   // Top
-            { x: 80, y: 300 },  // Middle
-            { x: 80, y: 520 }   // Bottom
-        ];
+        // Orange stones start at 10, 9, 8 (left side)
+        // Blue stones start at 5, 6, 7 (right side)
+        const orangeNodes = ['10', '9', '8'];
+        const blueNodes   = ['5', '6', '7'];
         
-        // Blue stones start positions (right side)
-        const bluePositions = [
-            { x: 470, y: 80 },  // Top
-            { x: 470, y: 300 }, // Middle
-            { x: 470, y: 520 }  // Bottom
-        ];
-        
-        this.gameState.orangeStones = orangePositions.map((pos, index) => ({
-            id: `orange-${index}`,
-            x: pos.x,
-            y: pos.y,
-            reachedGoal: false
+        this.gameState.orangeStones = orangeNodes.map((nodeId, index) => ({
+            id: `orange-${index+1}`,
+            nodeId,
+            reachedGoal: false,
+            number: index+1
         }));
         
-        this.gameState.blueStones = bluePositions.map((pos, index) => ({
-            id: `blue-${index}`,
-            x: pos.x,
-            y: pos.y,
-            reachedGoal: false
+        this.gameState.blueStones = blueNodes.map((nodeId, index) => ({
+            id: `blue-${index+1}`,
+            nodeId,
+            reachedGoal: false,
+            number: index+1
         }));
     }
     
     updateGameBoard() {
         const board = document.getElementById('gameBoard');
         
-        // Remove existing stones
-        const existingStones = board.querySelectorAll('.stone');
+        if (!board) {
+            console.error('[DEBUG] gameBoard element not found!');
+            return;
+        }
+        
+        console.log('[DEBUG] updateGameBoard called');
+        console.log('[DEBUG] Orange stones:', this.gameState.orangeStones);
+        console.log('[DEBUG] Blue stones:', this.gameState.blueStones);
+        
+        // Remove existing stones and node numbers
+        const existingStones = board.querySelectorAll('.stone, .move-hint, .node-number');
+        console.log('[DEBUG] Removing', existingStones.length, 'existing stones/numbers');
         existingStones.forEach(stone => stone.remove());
         
+        // Draw node numbers (all nodes with numbers)
+        // Numbering matches the visual: Left side 10,9,8 | Right side 5,6,7 | Center 3,4,1,2
+        // Each node uses its own ID as the label (10, 9, 8, 5, 6, 7, 4, 1, 3, 2)
+        
+        // Draw all node numbers (always visible)
+        Object.keys(this.boardNodes).forEach(nodeId => {
+            const node = this.boardNodes[nodeId];
+            const all = [...this.gameState.orangeStones, ...this.gameState.blueStones];
+            const occupied = new Set(all.map(s => s.nodeId));
+            
+            const nodeNumber = document.createElement('div');
+            nodeNumber.className = 'node-number';
+            nodeNumber.textContent = nodeId; // Use node ID directly as label
+            nodeNumber.style.left = `${node.x - 12}px`;
+            nodeNumber.style.top = `${node.y - 12}px`;
+            nodeNumber.setAttribute('data-node', nodeId);
+            
+            // If node is occupied, make number less visible
+            if (occupied.has(nodeId)) {
+                nodeNumber.style.opacity = '0.5';
+                nodeNumber.style.background = 'rgba(200, 200, 200, 0.5)';
+            }
+            
+            board.appendChild(nodeNumber);
+        });
+        
         // Draw orange stones
-        this.gameState.orangeStones.forEach(stone => {
+        console.log('[DEBUG] Drawing', this.gameState.orangeStones.length, 'orange stones');
+        this.gameState.orangeStones.forEach((stone, index) => {
+            console.log(`[DEBUG] Orange stone ${index + 1}:`, stone);
             const stoneEl = this.createStoneElement(stone, 'orange');
+            console.log(`[DEBUG] Created orange stone element:`, stoneEl);
+            console.log(`[DEBUG] Stone position: left=${stoneEl.style.left}, top=${stoneEl.style.top}`);
             board.appendChild(stoneEl);
         });
         
         // Draw blue stones
-        this.gameState.blueStones.forEach(stone => {
+        console.log('[DEBUG] Drawing', this.gameState.blueStones.length, 'blue stones');
+        this.gameState.blueStones.forEach((stone, index) => {
+            console.log(`[DEBUG] Blue stone ${index + 1}:`, stone);
             const stoneEl = this.createStoneElement(stone, 'blue');
+            console.log(`[DEBUG] Created blue stone element:`, stoneEl);
+            console.log(`[DEBUG] Stone position: left=${stoneEl.style.left}, top=${stoneEl.style.top}`);
             board.appendChild(stoneEl);
+        });
+        
+        // Debug: Check if stones are actually in DOM
+        const allStones = board.querySelectorAll('.stone');
+        console.log('[DEBUG] Total stones in DOM after drawing:', allStones.length);
+        allStones.forEach((stone, index) => {
+            console.log(`[DEBUG] Stone ${index + 1} in DOM:`, {
+                id: stone.id,
+                className: stone.className,
+                left: stone.style.left,
+                top: stone.style.top,
+                display: stone.style.display,
+                computedStyle: window.getComputedStyle(stone).display
+            });
         });
         
         // Update turn indicator
@@ -1558,11 +1731,41 @@ class ThreeStonesGame {
     }
     
     createStoneElement(stone, color) {
+        console.log(`[DEBUG] createStoneElement called for ${color} stone:`, stone);
         const stoneEl = document.createElement('div');
         stoneEl.className = `stone ${color}`;
         stoneEl.id = stone.id;
-        stoneEl.style.left = `${stone.x - 25}px`;
-        stoneEl.style.top = `${stone.y - 25}px`;
+        const node = this.boardNodes[stone.nodeId] || null;
+        console.log(`[DEBUG] Node for stone.nodeId="${stone.nodeId}":`, node);
+        if (node) {
+            stoneEl.style.left = `${node.x - 25}px`;
+            stoneEl.style.top = `${node.y - 25}px`;
+            console.log(`[DEBUG] Stone positioned at node: x=${node.x}, y=${node.y}, left=${stoneEl.style.left}, top=${stoneEl.style.top}`);
+        } else {
+            // Fallback to x,y if node unknown (legacy state)
+            stoneEl.style.left = `${(stone.x || 0) - 25}px`;
+            stoneEl.style.top = `${(stone.y || 0) - 25}px`;
+            console.warn(`[DEBUG] Node not found for stone.nodeId="${stone.nodeId}", using fallback position:`, stoneEl.style.left, stoneEl.style.top);
+        }
+        // Number label
+        stoneEl.textContent = stone.number || '';
+        stoneEl.style.display = 'flex';
+        stoneEl.style.alignItems = 'center';
+        stoneEl.style.justifyContent = 'center';
+        stoneEl.style.color = '#111';
+        stoneEl.style.fontWeight = '900';
+        stoneEl.style.position = 'absolute'; // Ensure absolute positioning
+        stoneEl.style.zIndex = '10'; // Ensure z-index
+        
+        console.log(`[DEBUG] Stone element created:`, {
+            id: stoneEl.id,
+            className: stoneEl.className,
+            left: stoneEl.style.left,
+            top: stoneEl.style.top,
+            display: stoneEl.style.display,
+            position: stoneEl.style.position,
+            zIndex: stoneEl.style.zIndex
+        });
         
         if (this.playerColor === color && this.gameState.currentTurn === color && !this.gameState.gameOver) {
             stoneEl.style.cursor = 'pointer';
@@ -1599,84 +1802,351 @@ class ThreeStonesGame {
     }
     
     showPossibleMoves(stoneId) {
-        // TODO: Calculate and highlight valid move positions
-        // For now, allow clicking on path positions
+        // Clear previous hints
         const board = document.getElementById('gameBoard');
-        board.addEventListener('click', this.handleBoardClick.bind(this), { once: true });
+        board.querySelectorAll('.move-hint').forEach(h => h.remove());
+        
+        // Find stone and its node
+        const all = [...this.gameState.orangeStones, ...this.gameState.blueStones];
+        const stone = all.find(s => s.id === stoneId);
+        if (!stone) return;
+        const currentNode = this.boardNodes[stone.nodeId];
+        
+        // Occupied nodes
+        const occupied = new Set(all.map(s => s.nodeId));
+        
+        // Neighbor nodes that are empty
+        const targets = currentNode.neighbors.filter(n => !occupied.has(n));
+        
+        // Render hints
+        targets.forEach(nodeId => {
+            const n = this.boardNodes[nodeId];
+            const hint = document.createElement('div');
+            hint.className = 'move-hint';
+            hint.style.left = `${n.x - 14}px`;
+            hint.style.top = `${n.y - 14}px`;
+            hint.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.makeGraphMove(stoneId, nodeId);
+            });
+            board.appendChild(hint);
+        });
     }
-    
-    handleBoardClick(event) {
-        if (event.target.classList.contains('stone') || event.target.classList.contains('path')) {
+
+    makeGraphMove(stoneId, toNodeId) {
+        // Validate move: check if target node is a neighbor and empty
+        let collection = this.gameState.currentTurn === 'orange' ? this.gameState.orangeStones : this.gameState.blueStones;
+        const idx = collection.findIndex(s => s.id === stoneId);
+        if (idx === -1) return;
+        
+        const stone = collection[idx];
+        const currentNode = this.boardNodes[stone.nodeId];
+        
+        if (!currentNode) {
+            console.error('Current node not found:', stone.nodeId);
             return;
         }
         
-        if (this.selectedStone) {
-            const rect = document.getElementById('gameBoard').getBoundingClientRect();
-            const x = event.clientX - rect.left;
-            const y = event.clientY - rect.top;
-            
-            // Check if position is valid (on path)
-            if (this.isValidPosition(x, y)) {
-                this.makeMove(this.selectedStone, x, y);
-            } else {
-                // Deselect stone
-                const stoneEl = document.getElementById(this.selectedStone);
-                if (stoneEl) stoneEl.classList.remove('selected');
-                this.selectedStone = null;
-            }
-        }
-    }
-    
-    isValidPosition(x, y) {
-        // Check if position is on any path
-        // Path coordinates:
-        // Vertical left: 50-110, 50-550
-        // Horizontal: 50-550, 300-360
-        // Vertical right: 490-550, 50-550
-        // etc.
-        
-        const paths = [
-            { x1: 50, y1: 50, x2: 110, y2: 550 },      // Left vertical
-            { x1: 50, y1: 300, x2: 550, y2: 360 },     // Horizontal
-            { x1: 490, y1: 50, x2: 550, y2: 550 },     // Right vertical
-            { x1: 50, y1: 300, x2: 110, y2: 400 },     // Middle left down
-            { x1: 270, y1: 300, x2: 330, y2: 400 },    // Middle center down
-            { x1: 490, y1: 300, x2: 550, y2: 400 },    // Middle right down
-            { x1: 50, y1: 200, x2: 110, y2: 300 },     // Top left up
-        ];
-        
-        for (const path of paths) {
-            if (x >= path.x1 - 25 && x <= path.x2 + 25 && 
-                y >= path.y1 - 25 && y <= path.y2 + 25) {
-                return true;
-            }
+        // Check if target node is a neighbor (1 step away)
+        if (!currentNode.neighbors.includes(toNodeId)) {
+            console.error('Target node is not a neighbor:', toNodeId, 'Current:', stone.nodeId, 'Neighbors:', currentNode.neighbors);
+            alert('Yalnız qonşu boş nöqtəyə hərəkət edə bilərsiniz');
+            return;
         }
         
-        return false;
-    }
-    
-    makeMove(stoneId, x, y) {
+        // Check if target node is empty
+        const all = [...this.gameState.orangeStones, ...this.gameState.blueStones];
+        const occupied = new Set(all.map(s => s.nodeId));
+        
+        if (occupied.has(toNodeId)) {
+            console.error('Target node is occupied:', toNodeId);
+            alert('Bu nöqtə doludur');
+            return;
+        }
+        
+        const currentColor = this.gameState.currentTurn;
+        const goalNodes = currentColor === 'orange' ? ['5', '6', '7'] : ['10', '9', '8'];
+        
+        // Check if stone reached goal
+        const reachedGoal = goalNodes.includes(toNodeId);
+        collection[idx] = { ...collection[idx], nodeId: toNodeId, reachedGoal };
+        
+        // Check win condition
+        const allStonesReachedGoal = collection.every(stone => stone.reachedGoal);
+        if (allStonesReachedGoal) {
+            this.gameState.gameOver = true;
+            this.gameState.winner = currentColor;
+        }
+        
+        // Clear selection and hints
+        this.selectedStone = null;
+        const board = document.getElementById('gameBoard');
+        board.querySelectorAll('.move-hint').forEach(h => h.remove());
+        
+        // Switch turn only if game is not over
+        if (!this.gameState.gameOver) {
+            this.gameState.currentTurn = this.gameState.currentTurn === 'orange' ? 'blue' : 'orange';
+        }
+        
+        // Send to server (compatible with legacy x,y move handler)
+        const target = this.boardNodes[toNodeId];
         this.sendMessage('make_move', {
             roomCode: this.roomCode,
-            stoneId: stoneId,
-            x: x,
-            y: y
+            stoneId,
+            x: target ? target.x : undefined,
+            y: target ? target.y : undefined,
+            toNodeId,
+            reachedGoal,
+            gameOver: this.gameState.gameOver,
+            winner: this.gameState.winner
         });
         
-        this.selectedStone = null;
+        // Re-render
+        this.updateGameBoard();
+        
+        // Show game over if won
+        if (this.gameState.gameOver) {
+            this.showGameOver(this.gameState.winner);
+        }
+    }
+
+    setupDiceUI() {
+        const modal = document.getElementById('diceModal');
+        const rollBtn = document.getElementById('rollDiceBtn');
+        const diceResult = document.getElementById('diceResult');
+        if (!modal || !rollBtn) return;
+        diceResult.textContent = '';
+        rollBtn.onclick = () => {
+            // Request server to roll (authoritative)
+            if (rollBtn.disabled) return;
+            rollBtn.disabled = true;
+            diceResult.textContent = 'Göndərilir...';
+            this.sendMessage('request_roll', { roomCode: this.roomCode });
+        };
+    }
+
+    create3DDice(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+        
+        // Clear container
+        container.innerHTML = '';
+        
+        const scene = document.createElement('div');
+        scene.className = 'dice-scene';
+        scene.id = containerId + '_scene';
+        
+        const cube = document.createElement('div');
+        cube.className = 'dice-cube';
+        cube.id = containerId + '_cube';
+        
+        // Create all 6 faces
+        const faces = [
+            { class: 'dice-cube__face--front dice-cube__face--1', dots: 1 },
+            { class: 'dice-cube__face--back dice-cube__face--6', dots: 6 },
+            { class: 'dice-cube__face--right dice-cube__face--3', dots: 3 },
+            { class: 'dice-cube__face--left dice-cube__face--4', dots: 4 },
+            { class: 'dice-cube__face--top dice-cube__face--2', dots: 2 },
+            { class: 'dice-cube__face--bottom dice-cube__face--5', dots: 5 }
+        ];
+        
+        faces.forEach(face => {
+            const faceEl = document.createElement('div');
+            faceEl.className = `dice-cube__face ${face.class}`;
+            for (let i = 0; i < face.dots; i++) {
+                const dot = document.createElement('span');
+                dot.className = 'dice-dot';
+                faceEl.appendChild(dot);
+            }
+            cube.appendChild(faceEl);
+        });
+        
+        scene.appendChild(cube);
+        container.appendChild(scene);
+        
+        return { scene, cube };
+    }
+
+    roll3DDice(containerId, value) {
+        const scene = document.getElementById(containerId + '_scene');
+        const cube = document.getElementById(containerId + '_cube');
+        if (!scene || !cube) return;
+        
+        const rotations = {
+            1: { x: 0,    y: 0    },
+            6: { x: 0,    y: 180  },
+            3: { x: 0,    y: -90  },
+            4: { x: 0,    y: 90   },
+            2: { x: -90,  y: 0    },
+            5: { x: 90,   y: 0    }
+        };
+        
+        const rollDuration = '2.5s';
+        const rollTimingFunction = 'cubic-bezier(0.25, 0.9, 0.5, 1.0)';
+        const initialCenterZ = -55; // --dice-size / 2
+        
+        const finalFace = rotations[value];
+        const fullRotationsX = 360 * (2 + Math.floor(Math.random() * 3));
+        const fullRotationsY = 360 * (2 + Math.floor(Math.random() * 3));
+        const fullRotationsZ = 360 * (1 + Math.floor(Math.random() * 2));
+        
+        const targetRotateX = finalFace.x + fullRotationsX;
+        const targetRotateY = finalFace.y + fullRotationsY;
+        const targetRotateZ = 0 + fullRotationsZ;
+        
+        scene.classList.add('is-smoking');
+        cube.style.transition = `transform ${rollDuration} ${rollTimingFunction}`;
+        cube.style.transform = `translateZ(${initialCenterZ}px) rotateX(${targetRotateX}deg) rotateY(${targetRotateY}deg) rotateZ(${targetRotateZ}deg)`;
+        
+        setTimeout(() => {
+            cube.style.transition = 'none';
+            scene.classList.remove('is-smoking');
+            cube.style.transform = `translateZ(${initialCenterZ}px) rotateX(${finalFace.x}deg) rotateY(${finalFace.y}deg) rotateZ(0deg)`;
+        }, 2550);
+    }
+
+    openDiceModal() {
+        const modal = document.getElementById('diceModal');
+        const info = document.getElementById('diceInfo');
+        const diceResult = document.getElementById('diceResult');
+        const p1Name = document.getElementById('diceP1Name');
+        const p2Name = document.getElementById('diceP2Name');
+        const p1Status = document.getElementById('diceP1Status');
+        const p2Status = document.getElementById('diceP2Status');
+        const players = this.playersByColor || {};
+        const rollBtn = document.getElementById('rollDiceBtn');
+        
+        if (!modal) return;
+        
+        // Set player names
+        if (p1Name) p1Name.textContent = players.orange || 'Turuncu';
+        if (p2Name) p2Name.textContent = players.blue || 'Mavi';
+        
+        // Reset values
+        const p1Val = document.getElementById('diceP1Val');
+        const p2Val = document.getElementById('diceP2Val');
+        if (p1Val) p1Val.textContent = '-';
+        if (p2Val) p2Val.textContent = '-';
+        if (p1Status) p1Status.textContent = 'Gözlənir...';
+        if (p2Status) p2Status.textContent = 'Gözlənir...';
+        
+        diceResult.textContent = '';
+        info.textContent = 'Hər iki oyunçu zar atsın.';
+        
+        // Enable roll button
+        if (rollBtn) {
+            rollBtn.disabled = false;
+            rollBtn.textContent = 'Zarı At';
+        }
+        
+        // Create 3D dice for both players
+        this.create3DDice('diceP1Container');
+        this.create3DDice('diceP2Container');
+        
+        modal.style.display = 'block';
+    }
+
+    closeDiceModal() {
+        const modal = document.getElementById('diceModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    showDiceRoll(username, roll, color) {
+        // Use color if provided, otherwise map username to color
+        let isOrange = false;
+        if (color) {
+            isOrange = color === 'orange';
+        } else {
+            const players = this.playersByColor || {};
+            isOrange = players.orange === username;
+        }
+        
+        const containerId = isOrange ? 'diceP1Container' : 'diceP2Container';
+        const valEl = document.getElementById(isOrange ? 'diceP1Val' : 'diceP2Val');
+        const statusEl = document.getElementById(isOrange ? 'diceP1Status' : 'diceP2Status');
+        
+        // Show roll value
+        if (valEl) valEl.textContent = String(roll);
+        if (statusEl) statusEl.textContent = 'Atıldı';
+        
+        // Animate 3D dice
+        this.roll3DDice(containerId, roll);
+    }
+
+    applyDiceResult(data) {
+        // data: { rolls: {orange:n, blue:n}, starter: 'orange'|'blue' }
+        const info = document.getElementById('diceInfo');
+        const diceResult = document.getElementById('diceResult');
+        const rollBtn = document.getElementById('rollDiceBtn');
+        
+        if (data.rolls) {
+            // Show both dice values
+            const p1Val = document.getElementById('diceP1Val');
+            const p2Val = document.getElementById('diceP2Val');
+            if (p1Val) p1Val.textContent = String(data.rolls.orange ?? '-');
+            if (p2Val) p2Val.textContent = String(data.rolls.blue ?? '-');
+            
+            // Animate both dice if not already animated
+            if (data.rolls.orange) {
+                this.roll3DDice('diceP1Container', data.rolls.orange);
+            }
+            if (data.rolls.blue) {
+                this.roll3DDice('diceP2Container', data.rolls.blue);
+            }
+        }
+        
+        if (data.tie) {
+            if (info) info.textContent = 'Bərabərlik! Yenidən atın.';
+            if (diceResult) diceResult.textContent = 'Bərabərlik! Yenidən atın.';
+            if (rollBtn) {
+                rollBtn.disabled = false;
+                rollBtn.textContent = 'Yenidən At';
+            }
+            // Reset status
+            const p1Status = document.getElementById('diceP1Status');
+            const p2Status = document.getElementById('diceP2Status');
+            if (p1Status) p1Status.textContent = 'Gözlənir...';
+            if (p2Status) p2Status.textContent = 'Gözlənir...';
+            return;
+        }
+        
+        if (data.starter) {
+            const who = data.starter === 'orange'
+                ? ((this.playersByColor && this.playersByColor.orange) || 'Turuncu')
+                : ((this.playersByColor && this.playersByColor.blue) || 'Mavi');
+            if (info) info.textContent = `İlk başlayan: ${who}`;
+            if (diceResult) diceResult.textContent = `🎲 İlk başlayan: ${who}`;
+            
+            // Update turn locally and re-render
+            this.gameState.currentTurn = data.starter;
+            this.updateTurnIndicator();
+            this.diceResolved = true;
+            
+            // Hide modal after delay
+            setTimeout(() => {
+                this.closeDiceModal();
+                // Start game after dice is resolved
+                if (!this.gameState.gameOver) {
+                    this.updateGameBoard();
+                }
+            }, 3000);
+        }
     }
     
     updateTurnIndicator() {
         const orangePlayer = document.getElementById('playerOrange');
         const bluePlayer = document.getElementById('playerBlue');
+        const status = document.getElementById('gameStatus');
         
         orangePlayer.classList.remove('current-turn');
         bluePlayer.classList.remove('current-turn');
         
         if (this.gameState.currentTurn === 'orange') {
             orangePlayer.classList.add('current-turn');
+            if (status) status.textContent = this.playerColor === 'orange' ? 'Sıra sizdə' : 'Rəqib oynayır...';
         } else {
             bluePlayer.classList.add('current-turn');
+            if (status) status.textContent = this.playerColor === 'blue' ? 'Sıra sizdə' : 'Rəqib oynayır...';
         }
         
         this.isMyTurn = this.gameState.currentTurn === this.playerColor;
