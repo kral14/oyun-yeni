@@ -360,24 +360,64 @@ class TowerDefenseGame {
         // Məntiqi grid layout sabit qalır (her zaman ayarla)
         this.gridCols = this.cols;
         this.gridRows = this.rows;
-        
+
         // Canvas boyutları 0 ise, sadece grid boyutlarını ayarla ve return
         if (!cw || !ch) {
             // Grid boyutları ayarlandı, ancak canvas boyutları henüz hazır değil
             // Bir sonraki frame'de tekrar denenecek
             return;
         }
-        
-        // Test dosyasındaki margin sistemini kullan (mobil için)
+
+        const safeDpr = this.devicePixelRatio || window.devicePixelRatio || 1;
+        const cssWidth = this.canvas.clientWidth || (cw / safeDpr);
+        const cssHeight = this.canvas.clientHeight || (ch / safeDpr);
+
+        // Test dosyasındaki margin sistemini kullan (mobil üçün)
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 768;
         const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
-        
+
         let marginTop, marginSide, marginBottom;
         if (isMobile && portrait) {
-            // Dikey modda: üstten 2px, yanlardan 2px, alttan 250px
-            marginTop = 2;
-            marginSide = 2;
-            marginBottom = 250;
+            // Dikey modda marginlər cihaz ölçüsünə görə dinamikdir
+            const safeCssW = Math.max(1, cssWidth);
+            const safeCssH = Math.max(1, cssHeight);
+
+            let marginTopCss = Math.max(6, Math.round(safeCssH * 0.02));
+            let marginSideCss = Math.max(6, Math.round(safeCssW * 0.035));
+
+            const minMarginBottomCss = 24;      // Tam gizlətmə - çox kiçik ekranlar üçün minimum
+            const preferredMinBottomCss = 48;   // İdarəetmə paneli üçün ideal minimum
+            let marginBottomCss = Math.round(
+                Math.min(220, Math.max(preferredMinBottomCss, safeCssH * 0.24))
+            );
+
+            const minPlayableHeightCss = Math.max(140, this.rows * 16);
+            let playableHeightCss = safeCssH - marginTopCss - marginBottomCss;
+
+            if (playableHeightCss < minPlayableHeightCss) {
+                const deficit = minPlayableHeightCss - playableHeightCss;
+                marginBottomCss = Math.max(minMarginBottomCss, marginBottomCss - deficit);
+                playableHeightCss = safeCssH - marginTopCss - marginBottomCss;
+
+                if (playableHeightCss < minPlayableHeightCss) {
+                    const fallbackBottom = Math.max(
+                        minMarginBottomCss,
+                        safeCssH - marginTopCss - minPlayableHeightCss
+                    );
+                    marginBottomCss = Math.min(marginBottomCss, fallbackBottom);
+                    playableHeightCss = safeCssH - marginTopCss - marginBottomCss;
+                }
+            }
+
+            const absoluteMaxBottomCss = Math.max(minMarginBottomCss, safeCssH - marginTopCss - 72);
+            marginBottomCss = Math.min(marginBottomCss, absoluteMaxBottomCss);
+            if (marginBottomCss < minMarginBottomCss) {
+                marginBottomCss = Math.max(minMarginBottomCss, Math.round(safeCssH * 0.14));
+            }
+
+            marginTop = Math.round(marginTopCss * safeDpr);
+            marginSide = Math.round(marginSideCss * safeDpr);
+            marginBottom = Math.round(marginBottomCss * safeDpr);
         } else if (isMobile && !portrait) {
             // Yatay modda: üstten/alttan 2px, yanlardan 25px
             marginTop = 2;
